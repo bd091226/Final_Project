@@ -20,3 +20,8 @@
 //     greet();
 //   });
 // });
+
+import { invoke } from "@tauri-apps/api/core";
+import { scan, Format } from "@tauri-apps/plugin-barcode-scanner";
+
+window.addEventListener("DOMContentLoaded", () => {});
