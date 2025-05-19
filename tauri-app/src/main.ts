@@ -24,4 +24,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { scan, Format } from "@tauri-apps/plugin-barcode-scanner";
 
-window.addEventListener("DOMContentLoaded", () => {});
+window.addEventListener("DOMContentLoaded", () => {
+  scan({ windowed: true, formats: [""] });
+});
