@@ -22,8 +22,25 @@
 // });
 
 import { invoke } from "@tauri-apps/api/core";
-import { scan, Format } from "@tauri-apps/plugin-barcode-scanner";
 
-window.addEventListener("DOMContentLoaded", () => {
-  scan({ windowed: true, formats: [""] });
+let scanBtnEl: HTMLButtonElement | null = null;
+let resultMsgEl: HTMLElement | null = null;
+
+window.addEventListener("DOMContentLoaded", async () => {
+  console.log("DOM 로드 완료");
+
+  scanBtnEl = document.querySelector("#scan-btn");
+  resultMsgEl = document.querySelector(".result-msg");
+
+  console.log("scanBtnEl:", scanBtnEl); // 요소가 제대로 잡혔는지 확인
+  console.log("resultMsgEl:", resultMsgEl);
+
+  if (scanBtnEl) {
+    scanBtnEl.addEventListener("click", () => {
+      console.log("click 이벤트 발생!");
+      alert("버튼 클릭됨");
+    });
+  } else {
+    console.error("버튼을 찾을 수 없습니다.");
+  }
 });
