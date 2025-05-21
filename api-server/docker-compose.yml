@@ -1,20 +1,16 @@
-version: '3.8'
-
 networks:
   backend:
 
 services:
   app:
+    image: chl11wq12/kosta-app:v1.0.0
+    platform: linux/amd64
     build: .
     container_name: gin-gorm-app
     ports:
       - "${APP_PORT}:${APP_PORT}"
-    environment:
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - DB_HOST=db
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
+    env_file:
+      - .env
     depends_on:
       db:
         condition: service_healthy  # MySQL이 healthy 상태가 되면 실행
@@ -23,14 +19,12 @@ services:
 
   db:
     image: mysql:8
+    platform: linux/amd64
     container_name: mysql-db
     ports:
-      - "3306:3306"
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${DB_NAME}
-      MYSQL_USER: ${DB_USER}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
+      - "${DB_PORT}:${DB_PORT}"
+    env_file:
+      - .env
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
