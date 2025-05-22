@@ -40,16 +40,10 @@ def on_message(client, userdata, msg):
     if payload == "B차 출발":
         GPIO.output(LED_PIN, GPIO.HIGH)
         print("출발")
-        # 2) 2초 대기
-        #time.sleep(2)
-
-        # 3) B에게 '목적지 도착' 메시지 발행
+        # B에게 '목적지 도착' 메시지 발행
         client.publish(TOPIC_STATUS, "목적지 도착", qos=1)
         print("📨 보관함 → B: '목적지 도착' 전송")
 
-        # 1초 대기 후 서보모터 90도 회전
-        #time.sleep(1)
-        # 서보모터 90도 회전
         set_angle(0)
         time.sleep(1)
 
