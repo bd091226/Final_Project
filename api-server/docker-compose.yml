@@ -3,7 +3,7 @@ networks:
 
 services:
   app:
-    image: chl11wq12/kosta-app:v1.0.0
+    image: chl11wq12/kosta-2-app:v1.0.0
     platform: linux/amd64
     build: .
     container_name: gin-gorm-app
