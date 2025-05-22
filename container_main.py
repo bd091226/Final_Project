@@ -1,11 +1,11 @@
+# container_main.py
 import subprocess
 import os
 import sys
 import time
 
-from container_DB import connect_db, insert_distance
 from container_Sensor import setup, measure_distance, cleanup
-from container_MQTT_Handler import create_mqtt_client
+from container_DB_MQTT import connect_db, insert_distance, create_mqtt_client
 
 if __name__ == "__main__":
     # 1) Start camera script
@@ -40,5 +40,4 @@ if __name__ == "__main__":
         conn.close()
         if camera_proc.poll() is None:
             camera_proc.terminate()
-            print("✔️ Camera script terminated.")
         print("✔️ Shutdown complete.")
