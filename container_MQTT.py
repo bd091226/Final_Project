@@ -5,7 +5,8 @@ from container_config import (
     BROKER, PORT,
     TOPIC_SUB,        # 버튼 카운트
     TOPIC_PUB,        # A차 출발
-    TOPIC_PUB_DIST    # B차 출발(거리 경고) <-- 새로 구독
+    TOPIC_PUB_DIST,    # B차 출발(거리 경고) <-- 새로 구독
+    TOPIC_STATUS
 )
 from container_DB import update_load_count, insert_vehicle_status_B
 
@@ -13,6 +14,7 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         client.subscribe(TOPIC_SUB, qos=1)
         client.subscribe(TOPIC_PUB_DIST, qos=1)
+        client.subscribe(TOPIC_STATUS, qos=1)  
         print(f"👉 MQTT connected. Subscribed to {TOPIC_SUB} and {TOPIC_PUB_DIST}")
     else:
         print(f"❌ MQTT connect failed with code {rc}")
@@ -38,9 +40,15 @@ def on_message(client, userdata, msg):
         print(f"📥 Received distance alert: {payload}")
         insert_vehicle_status_B(cursor, conn)
         print("🔄 Inserted new record into vehicle_status_B")
+    elif topic == TOPIC_STATUS:
+        print(f"📥 B: 메시지 수신 - {payload}")
+    
+        if payload == "목적지 도착":
+            print("✅ B: 목적지에 도착했습니다!")
 
     else:
         print(f"⚠️ Unhandled topic: {topic}")
+    
 
 def create_mqtt_client(db_conn_tuple):
     client = mqtt.Client(userdata={'db': db_conn_tuple})
