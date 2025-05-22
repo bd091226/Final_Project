@@ -39,3 +39,18 @@ def insert_distance(cursor, conn, dist):
         (dist,)
     )
     conn.commit()
+
+def insert_vehicle_status_B(cursor, conn):
+    """
+    Insert a new row into vehicle_status_B:
+      - vehicle_type: 'B차'
+      - location: 0
+      - destination_zone_id: 0
+      - status_message: '이동'
+    """
+    cursor.execute(
+        "INSERT INTO vehicle_status_B (vehicle_type, location, destination_zone_id, status_message) "
+        "VALUES (%s, %s, %s, %s)",
+        ('B차', 0, 0, '이동')
+    )
+    conn.commit()
