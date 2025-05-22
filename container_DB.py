@@ -27,7 +27,7 @@ def update_load_count(cursor, conn, count):
 
 def insert_distance(cursor, conn, dist):
     cursor.execute(
-        "INSERT INTO z_Seoul (distance) VALUES (%s)",
+        "INSERT INTO z_Seoul (distance, measured_at) VALUES (%s, NOW())",
         (dist,)
     )
     conn.commit()
