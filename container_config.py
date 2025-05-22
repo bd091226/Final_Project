@@ -1,6 +1,3 @@
-# container_config.py
-# Configuration for DB and MQTT
-
 DB_CONFIG = {
     "user": "Project_19",
     "password": "1234",
@@ -9,7 +6,10 @@ DB_CONFIG = {
     "charset": "utf8"
 }
 
-BROKER    = "broker.hivemq.com"
-PORT      = 1883
-TOPIC_SUB = "myhome/button/count"
-TOPIC_PUB = "myhome/command"
+BROKER        = "broker.hivemq.com"
+PORT          = 1883
+
+# MQTT Topics
+TOPIC_SUB      = "myhome/button/count"      # 버튼 카운트 수신용
+TOPIC_PUB      = "myhome/command"           # A차 출발 명령 발행용
+TOPIC_PUB_DIST = "myhome/distance/alert"    # C차 출발(거리 경고) 명령 발행용
