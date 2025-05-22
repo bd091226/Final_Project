@@ -8,10 +8,10 @@ import (
 	"gorm.io/gorm"
 )
 
-type User struct {
+type Data struct {
 	ID    uint   `json:"id" gorm:"primaryKey"`
 	Name  string `json:"name"`
-	Email string `json:"email" gorm:"unique"`
+	Value string `json:"value"`
 }
 
 func main() {
@@ -21,24 +21,24 @@ func main() {
 		panic("failed to connect database")
 	}
 
-	db.AutoMigrate(&User{})
+	db.AutoMigrate(&Data{})
 
 	r := gin.Default()
 
-	r.POST("/users", func(c *gin.Context) {
-		var user User
-		if err := c.ShouldBindJSON(&user); err != nil {
+	r.POST("/data", func(c *gin.Context) {
+		var data Data
+		if err := c.ShouldBindJSON(&data); err != nil {
 			c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
 			return
 		}
-		db.Create(&user)
-		c.JSON(201, user)
+		db.Create(&data)
+		c.JSON(201, data)
 	})
 
-	r.GET("/users", func(c *gin.Context) {
-		var users []User
-		db.Find(&users)
-		c.JSON(200, users)
+	r.GET("/data", func(c *gin.Context) {
+		var datas []Data
+		db.Find(&datas)
+		c.JSON(200, datas)
 	})
 
 	r.Run(":8080")
