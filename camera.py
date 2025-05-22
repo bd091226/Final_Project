@@ -50,7 +50,8 @@ def gen_frames():
          # QR 코드 감지 및 디코딩
         data, bbox, _ = qr_detector.detectAndDecode(frame)
         if data:
-            print("Detected QR code:", data)
+            print("Detected QR code:")
+            print(data)
             sys.stdout.flush()
             # 바운딩 박스 그리기 (선택 사항)
             if bbox is not None:
