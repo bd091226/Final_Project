@@ -1,3 +1,4 @@
+# 구역함 DB와 MQTT 연결 (초음파 센서, A차 수신 적재 수량 업데이트 가능)
 import RPi.GPIO as GPIO
 import time
 import mysql.connector
