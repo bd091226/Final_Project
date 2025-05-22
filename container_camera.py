@@ -17,7 +17,7 @@ def on_message(client, userdata, msg):
     qr_data = msg.payload.decode().strip()
     print(f"[PiB] Received QR from PiA: {qr_data}")
 
-    # 공백 기준 분리: type_, data
+    # 공백 첫 번째: type_, 나머지: data
     parts = qr_data.split(maxsplit=1)
     if len(parts) == 2:
         type_, data = parts
@@ -25,7 +25,7 @@ def on_message(client, userdata, msg):
         # DB에 반영
         handle_qr_insert(type_, data)
     else:
-        print("[PiB] Invalid QR format; expected '<지역> <상품>'")
+        print("[PiB] Invalid QR format; e4xpected '<지역> <상품>'")
 
 if __name__ == "__main__":
     client = mqtt.Client("PiB_QR_Receiver")
