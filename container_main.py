@@ -1,10 +1,9 @@
 import subprocess, os, sys, time
-from container_Sensor import run_sensor_loop
 from container_DB import connect_db
-from container_MQTT import create_mqtt_client
+from container_MQTT_Sensor import create_mqtt_client, run_sensor_loop
 
 if __name__ == "__main__":
-    # 1) 카메라 실행
+    # 1) 카메라 서브프로세스 실행
     script_dir = os.path.dirname(os.path.realpath(__file__))
     camera_script = os.path.join(script_dir, 'container_camera.py')
     camera_proc = subprocess.Popen([sys.executable, camera_script])
@@ -15,7 +14,7 @@ if __name__ == "__main__":
     mqtt_client.loop_start()
 
     try:
-        # 3) 센서 루프 실행
+        # 3) 초음파 센서 루프 시작
         run_sensor_loop(mqtt_client, conn, cursor)
     except KeyboardInterrupt:
         pass
