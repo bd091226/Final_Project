@@ -5,7 +5,7 @@ from container_config import (
     BROKER, PORT,
     TOPIC_SUB,        # 버튼 카운트
     TOPIC_PUB,        # A차 출발
-    TOPIC_PUB_DIST    # C차 출발(거리 경고) <-- 새로 구독
+    TOPIC_PUB_DIST    # B차 출발(거리 경고) <-- 새로 구독
 )
 from container_DB import update_load_count, insert_vehicle_status_B
 
