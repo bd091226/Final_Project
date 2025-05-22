@@ -1,3 +1,4 @@
+# 구역함 서보모터 테스트
 import RPi.GPIO as GPIO
 import time
 
