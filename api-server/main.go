@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -45,13 +46,14 @@ func main() {
 }
 
 func getDSN() string {
-	user := lookupEnv("DB_USER", "defaultuser")
+	user := lookupEnv("DB_USER", "")
 	pass := lookupEnv("DB_PASSWORD", "")
-	host := lookupEnv("DB_HOST", "localhost")
-	port := lookupEnv("DB_PORT", "3306")
-	name := lookupEnv("DB_NAME", "dbname")
+	host := lookupEnv("DB_HOST", "")
+	port := lookupEnv("DB_PORT", "")
+	name := lookupEnv("DB_NAME", "")
 
-	return user + ":" + pass + "@tcp(" + host + ":" + port + ")/" + name + "?charset=utf8mb4&parseTime=True&loc=Local"
+	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+		user, pass, host, port, name)
 }
 
 func lookupEnv(key, fallback string) string {
