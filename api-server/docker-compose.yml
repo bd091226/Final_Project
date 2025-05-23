@@ -3,24 +3,24 @@ networks:
     driver: bridge
 
 services:
-  api-server:
-    image: chl11wq12/kosta-2-api-server:v1.0.0
+  api:
+    image: chl11wq12/kosta-2-api:v1.0.0
     platform: linux/amd64
     build: .
-    container_name: api-server
+    container_name: api
     env_file: .env
     ports:
       - "${API_PORT}:${API_PORT}"
     depends_on:
-      mysql:
-        condition: service_healthy  # MySQL이 healthy 상태가 되면 실행
+      db:
+        condition: service_healthy
     networks:
       - backend
 
-  mysql:
+  db:
     image: mysql:8
     platform: linux/amd64
-    container_name: mysql
+    container_name: db
     ports:
       - "3306:3306"
     environment:
@@ -29,15 +29,15 @@ services:
       MYSQL_USER: "${DB_USER}"
       MYSQL_PASSWORD: "${DB_PASSWORD}"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - data:/var/lib/db
       - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-uroot", "-ppassword"]
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-p${DB_ROOT_PASSWORD}"]
       interval: 5s
-      timeout: 10s
-      retries: 10
+      timeout: 3s
+      retries: 3
     networks:
       - backend
 
 volumes:
-  mysql_data:
+  data:
