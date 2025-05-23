@@ -59,7 +59,7 @@ def on_message(client, userdata, msg):
         print(f"알 수 없는 명령: {payload}")
 
 def main():
-    mqtt_client = mqtt.Client(client_id="C_Subscriber")
+    mqtt_client = mqtt.Client(client_id="B_Subscriber")
     mqtt_client.on_connect = on_connect
     mqtt_client.on_message = on_message
 
