@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
+# DB_subscribe.py
 import paho.mqtt.client as mqtt
 
 # MQTT 브로커 설정 (publisher와 동일하게)
