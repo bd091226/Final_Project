@@ -8,7 +8,8 @@ from container_config import (
     TOPIC_SUB,
     TOPIC_PUB,
     TOPIC_PUB_DIST,
-    TOPIC_STATUS
+    TOPIC_STATUS,
+    TOPIC_ARRIVAL
 )
 from container_DB import update_load_count, insert_distance
 
@@ -70,6 +71,7 @@ def on_connect(client, userdata, flags, rc):
         client.subscribe(TOPIC_SUB, qos=1)
         client.subscribe(TOPIC_PUB_DIST, qos=1)
         client.subscribe(TOPIC_STATUS, qos=1)
+        client.subscribe(TOPIC_ARRIVAL, qos=1)
         print("✅ MQTT 연결 및 구독 완료")
     else:
         print(f"❌ MQTT 연결 실패: 코드 {rc}")
@@ -94,11 +96,16 @@ def on_message(client, userdata, msg):
 
     elif topic == TOPIC_STATUS:
         print(f"📥 B차 상태 메시지 수신: '{payload}'")
-        if payload == "목적지 도착":
+        if payload == "B차 목적지 도착":
             print("🎯 B차가 목적지에 도착했습니다! 서보모터를 90°로 회전합니다.")
             move_servo(pwm, 90)
             time.sleep(0.5)
             move_servo(pwm, 0)
+    elif topic == TOPIC_ARRIVAL: 
+        print(f"📥 도착 메시지 수신: '{payload}'")
+        if payload == "A차 목적지 도착":
+            print("🎯 A가 목적지에 도착")
+
 
 # --- 센서 루프 ---
 def run_sensor_loop(mqtt_client, conn, cursor):
