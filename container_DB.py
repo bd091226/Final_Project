@@ -20,31 +20,25 @@ def connect_db():
             print(f"❌ MySQL connection error: {e}. Retrying in 5 seconds...")
             time.sleep(5)
 
-def update_load_count(cursor, conn, count):
+def update_load_order(cursor, conn, count):
     """
-    Update vehicle_status_A.load_count in the database.
+    MQTT로부터 수신된 count 값을 A차(차량_ID=1)의 현재_적재_수량에 반영.
     """
-    cursor.execute(
-        "UPDATE vehicle_status_A SET load_count = %s WHERE vehicle_id = 1",
-        (count,)
-    )
-    conn.commit()
+    try:
+        cursor.execute(
+            """
+            UPDATE 차량
+            SET 현재_적재_수량 = %s
+            WHERE 차량_ID = 1
+            """,
+            (count,)
+        )
+        conn.commit()
+        print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
+    except Exception as e:
+        print(f"❌ 적재 수량 업데이트 실패: {e}")
 
-def insert_distance(cursor, conn, dist):
-    cursor.execute(
-        "INSERT INTO z_Seoul (distance, measured_at) VALUES (%s, NOW())",
-        (dist,)
-    )
-    conn.commit()
-
-def handle_qr_insert(type_, data):
-    """
-    QR 수신 시 호출.
-    data -> product.product_type
-    type_ 매핑 -> product.destination_zone_id
-    그리고 product_id를 받아 vehicle_status_A에도 삽입.
-    """
-    # 지역명 → zone 코드 매핑
+def handle_qr_insert(type_, product_type):
     zone_map = {
         '서울': 'S',
         '경상도': 'G',
@@ -58,32 +52,45 @@ def handle_qr_insert(type_, data):
 
     conn, cursor = connect_db()
     try:
-        # 1) product 테이블에 삽입
+        # 1. 상품 등록
         cursor.execute(
             """
-            INSERT INTO product (product_type, destination_zone_id)
-            VALUES (%s, %s)
+            INSERT INTO 상품 (상품_종류, 구역_ID, 현재_상태)
+            VALUES (%s, %s, '등록됨')
             """,
-            (data, zone)
+            (product_type, zone)
         )
-        conn.commit()
         product_id = cursor.lastrowid
-        print(f"✅ product inserted: id={product_id}, type={data}, zone={zone}")
+        print(f"✅ 상품 등록 완료: ID={product_id}")
 
-        # 2) vehicle_status_A 테이블에 삽입
+        # 2. 운행_기록 생성 (자동 생성 / 하나의 상품에 하나의 운행 기준)
         cursor.execute(
             """
-            INSERT INTO vehicle_status_A (product_id, destination_zone_id)
-            VALUES (%s, %s)
-            """,
-            (product_id, zone)
+            INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
+            VALUES (1, NOW(), 0)
+            """
         )
+        운행_ID = cursor.lastrowid
+        print(f"✅ 운행 생성 완료: 운행_ID={운행_ID}")
+
+        # 3. 운행_상품에 등록 (등록_시각 = NOW())
+        cursor.execute(
+            """
+            INSERT INTO 운행_상품 (
+                운행_ID, 상품_ID, 구역_ID, 적재_순번, 등록_시각
+            )
+            SELECT %s, 상품_ID, 구역_ID, NULL, NOW()
+            FROM 상품
+            WHERE 상품_ID = %s
+            """,
+            (운행_ID, product_id)
+        )
+        print(f"✅ 운행_상품 등록 완료: 상품 {product_id} → 운행 {운행_ID}")
+
         conn.commit()
-        print(f"✅ vehicle_status_A inserted: product_id={product_id}, zone={zone}")
 
     except Error as e:
-        print(f"❌ QR insert error: {e}")
+        print(f"❌ QR 등록 중 오류: {e}")
     finally:
         cursor.close()
         conn.close()
-
