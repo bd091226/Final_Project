@@ -1,11 +1,20 @@
 import RPi.GPIO as GPIO
 import time
+import threading
 import paho.mqtt.client as mqtt
+from container_dest import send_arrival 
 
 BROKER = "broker.hivemq.com"   # 퍼블릭 MQTT 브로커 주소
 PORT   = 1883                  # 일반 MQTT 포트 번호
 TOPIC_PUB  = "myhome/button/count" # 버튼 누름 정보를 보낼 토픽, A가 토픽에 정보를 보냄
-TOPIC_SUB = "myhome/command"  
+TOPIC_SUB = "myhome/command"
+
+
+# 컨베이너 벨트 관련 GPIO 설정
+IN3 = 17   # L298N IN1
+IN4 = 27   # L298N IN2
+GPIO.setup(IN3, GPIO.OUT)
+GPIO.setup(IN4, GPIO.OUT)
 
 button_pin = 17 # 버튼 핀 번호
 GPIO.setwarnings(False)
@@ -23,9 +32,12 @@ def on_message(client, userdata, msg):
     global count
     command = msg.payload.decode() 
     print(f"📬 Received command from B: {command}")
+    
+    # 보관함에서 A차 출발이라는 명령어 수신 시
     if command == "A차 출발":
         count = 1 # count 초기화
         print("🔄 count reset to 0")
+        threading.Timer(3.0, send_arrival).start()
 
 client = mqtt.Client()  # MQTT 클라이언트 객체 생성
 client.on_connect = on_connect
@@ -44,6 +56,15 @@ try:
             
             print("count: ", count)
             #payload = str(count) # MQTT 메시지 보낼 내용, 카운트 값을 문자열로 변환
+            if GPIO.input(button_pin) == GPIO.HIGH:
+                # 버튼 눌림 → 정방향 회전
+                GPIO.output(IN3, GPIO.HIGH)
+                GPIO.output(IN4, GPIO.LOW)
+            else:
+                # 버튼 안 눌림 → 정지
+                GPIO.output(IN3, GPIO.LOW)
+                GPIO.output(IN4, GPIO.LOW)
+            time.sleep(0.05)
             result = client.publish(TOPIC_PUB, str(count),qos=1) # 브로커에로 메시지 전송
             count += 1
             # 전송 결과 확인 (0이면 성공)
