@@ -12,7 +12,7 @@ def send_arrival():
     client = mqtt.Client()
     client.connect(BROKER, PORT, 60)
     client.loop_start()
-    result = client.publish(TOPIC_ARRIVAL, "목적지 도착", qos=1)
+    result = client.publish(TOPIC_ARRIVAL, "A차 목적지 도착", qos=1)
     if result[0] == 0:
         print(f"📤 Published '목적지 도착' to {TOPIC_ARRIVAL}")
     else:
