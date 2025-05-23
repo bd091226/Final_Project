@@ -11,10 +11,10 @@ TOPIC_SUB = "myhome/command"
 
 
 # 컨베이너 벨트 관련 GPIO 설정
-IN3 = 17   # L298N IN1
-IN4 = 27   # L298N IN2
-GPIO.setup(IN3, GPIO.OUT)
-GPIO.setup(IN4, GPIO.OUT)
+# IN3 = 17   # L298N IN1
+# IN4 = 27   # L298N IN2
+# GPIO.setup(IN3, GPIO.OUT)
+# GPIO.setup(IN4, GPIO.OUT)
 
 button_pin = 17 # 버튼 핀 번호
 GPIO.setwarnings(False)
@@ -56,15 +56,15 @@ try:
             
             print("count: ", count)
             #payload = str(count) # MQTT 메시지 보낼 내용, 카운트 값을 문자열로 변환
-            if GPIO.input(button_pin) == GPIO.HIGH:
-                # 버튼 눌림 → 정방향 회전
-                GPIO.output(IN3, GPIO.HIGH)
-                GPIO.output(IN4, GPIO.LOW)
-            else:
-                # 버튼 안 눌림 → 정지
-                GPIO.output(IN3, GPIO.LOW)
-                GPIO.output(IN4, GPIO.LOW)
-            time.sleep(0.05)
+            # if GPIO.input(button_pin) == GPIO.HIGH:
+            #     # 버튼 눌림 → 정방향 회전
+            #     GPIO.output(IN3, GPIO.HIGH)
+            #     GPIO.output(IN4, GPIO.LOW)
+            # else:
+            #     # 버튼 안 눌림 → 정지
+            #     GPIO.output(IN3, GPIO.LOW)
+            #     GPIO.output(IN4, GPIO.LOW)
+            # time.sleep(0.05)
             result = client.publish(TOPIC_PUB, str(count),qos=1) # 브로커에로 메시지 전송
             count += 1
             # 전송 결과 확인 (0이면 성공)
