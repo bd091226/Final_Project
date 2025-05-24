@@ -77,7 +77,9 @@ def on_connect(client, userdata, flags, rc):
     else:
         print(f"❌ MQTT 연결 실패: 코드 {rc}")
 
+운행_ID = None
 def on_message(client, userdata, msg):
+    global 운행_ID
     topic = msg.topic
     payload = msg.payload.decode().strip()
     conn, cursor, pwm = userdata['db_pwm']
@@ -85,7 +87,7 @@ def on_message(client, userdata, msg):
     if topic == TOPIC_COUNT: # A차 버튼을 눌렀을 때
         try:
             count = int(payload)
-            button_A(cursor, conn, count)
+            운행_ID = button_A(cursor, conn, count, 운행_ID=운행_ID)
             if count > 2:
                 departed_A(conn, cursor, vehicle_id=1) 
                 A_current_dest(client, operation_id)
