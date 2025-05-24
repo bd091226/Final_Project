@@ -99,7 +99,7 @@ def on_message(client, userdata, msg):
             if payload == "A차 목적지 도착":
                 print("🎯 A가 목적지에 도착")
                 zone_arrival_A(conn, cursor)
-                
+                A_current_dest(client, operation_id)
                 # zone_id = get_next_unload_zone_for_vehicle(cursor, vehicle_id=1)
                 # if zone_id:
                 #     client.publish("unload/zone", zone_id, qos=1)

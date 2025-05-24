@@ -23,7 +23,7 @@ def check_saturation_and_publish():
     try:
         conn = pymysql.connect(**DB_CONFIG)
         cursor = conn.cursor()
-        cursor.execute("SELECT 구역_ID FROM 구역 WHERE 포화_여부 = 0")
+        cursor.execute("SELECT 구역_ID FROM 구역 WHERE 포화_여부 = 1")
         rows = cursor.fetchall()
         if rows:
             zone_ids = [str(r[0]) for r in rows]
