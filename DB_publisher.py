@@ -1,3 +1,4 @@
+# DB_publisher.py
 import pymysql
 import paho.mqtt.client as mqtt
 import time
@@ -14,7 +15,7 @@ DB_CONFIG = {
 MQTT_BROKER = 'broker.hivemq.com'
 MQTT_PORT = 1883
 MQTT_TOPIC = 'vehicle/B/start'
-TOPIC_A_NEXT = 'vehicle/A/next'
+TOPIC_A_CURRENT_DEST = 'A_current_dest'
 
 def check_saturation_and_publish():
     conn= None
@@ -40,8 +41,8 @@ def check_saturation_and_publish():
         if conn:
             conn.close()
 
-def A_next_dest(operation_id):
-
+def A_current_dest(mqtt_client,operation_id): # A에게 보낼 목적지를 데이터베이스에서 들고오는 함수
+    #operation_id는 지금은 고정되어 있지만 나중에 교체되어야할 것
     conn = pymysql.connect(**DB_CONFIG)
     cursor = conn.cursor()
     try:
@@ -57,11 +58,11 @@ def A_next_dest(operation_id):
         cursor.execute(sql, (operation_id,))
         row = cursor.fetchone()
         if row:
-            next_zone = row[0]
-            msg = f"A_NEXT_ZONE:{next_zone}"
-            print(f"[A-next] 운행_ID={operation_id}의 다음 구역: {next_zone}")
-            mqtt_client.publish(TOPIC_A_NEXT, msg, qos=1)
-            print(f"[A-next] Published: {msg}")
+            current_zone = row[0]
+            msg = f"A차 {current_zone}로 출발" 
+            print(f"[A-current] 운행_ID={operation_id}의 현재 목적지: {current_zone}") 
+            mqtt_client.publish(TOPIC_A_CURRENT_DEST, msg, qos=1) # A에게 현재 목적지 발행
+            print(f"[A-current] Published: {msg}")
         else:
             print(f"[A-next] 운행_ID={operation_id}에 남은 구역이 없습니다.")
     except Exception as e:
@@ -77,7 +78,7 @@ if __name__ == '__main__':
     try:
         while True:
             check_saturation_and_publish()
-            A_next_dest(operation_id)
+            A_current_dest(operation_id)
             time.sleep(10)
     except KeyboardInterrupt:
         print("종료 중...")
