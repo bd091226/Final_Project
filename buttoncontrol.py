@@ -2,7 +2,6 @@ import time
 import threading
 import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
-from container_dest import send_arrival
 
 # ─── 상수 정의 ───────────────────────────────────────
 BROKER       = "broker.hivemq.com"
@@ -11,6 +10,7 @@ TOPIC_PUB    = "myhome/button/count"
 TOPIC_SUB    = "myhome/command"
 DEBOUNCE_MS  = 50     # 버튼 디바운싱 (ms)
 
+motor_lock = False
 MOTOR_IN1    = 22
 MOTOR_IN2    = 27
 BUTTON_PIN   = 17
@@ -21,6 +21,32 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setup(MOTOR_IN1, GPIO.OUT)
 GPIO.setup(MOTOR_IN2, GPIO.OUT)
 GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+
+def motor_forward():
+    GPIO.output(MOTOR_IN1, GPIO.HIGH)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+
+def motor_stop():
+    GPIO.output(MOTOR_IN1, GPIO.LOW)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+
+def task():
+    global motor_lock
+    time.sleep(3)  # 3초 대기
+    arrival_msg = "A차 목적지 도착"
+    print(f"🏁 {arrival_msg}")
+    client.publish("myhome/arrival", arrival_msg, qos=1)
+
+    # 모터 2초 작동
+    motor_lock = True
+    GPIO.output(MOTOR_IN1, GPIO.HIGH)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+    time.sleep(2)
+    GPIO.output(MOTOR_IN1, GPIO.LOW)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+    motor_lock = False
+
 
 # ─── MQTT 콜백 정의 ─────────────────────────────────
 def on_connect(client, userdata, flags, rc):
@@ -37,7 +63,9 @@ def on_message(client, userdata, msg):
     if cmd == "A차 출발":
         count = 1
         print("🔄 count 초기화")
-        threading.Timer(3.0, send_arrival).start()
+        threading.Thread(target=task).start()
+        
+
 
 # ─── MQTT 클라이언트 설정 ───────────────────────────
 client = mqtt.Client()
@@ -49,15 +77,7 @@ client.loop_start()
 # ─── 메인 변수 ───────────────────────────────────────
 count = 1
 prev_state = GPIO.HIGH
-
-# ─── 모터 제어 헬퍼 ──────────────────────────────────
-def motor_forward():
-    GPIO.output(MOTOR_IN1, GPIO.HIGH)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
-
-def motor_stop():
-    GPIO.output(MOTOR_IN1, GPIO.LOW)
-    GPIO.output(MOTOR_IN2, GPIO.LOW)
+arrival_mode =False
 
 # ─── 버튼 상태 검사 및 MQTT 발행 ────────────────────
 try:
@@ -67,24 +87,26 @@ try:
 
         if cur_state == GPIO.LOW:
             # 버튼이 눌려 있는 동안 모터 구동
-            motor_forward()
+            if not motor_lock:
+                motor_forward()
 
-            # ↑ edge (HIGH→LOW) 일 때만 count 발행
-            if prev_state == GPIO.HIGH:
-                print(f"count: {count}")
-                result = client.publish(TOPIC_PUB, str(count), qos=1)
-                if result[0] == 0:
-                    print(f"📤 발행 성공 → {count}")
-                else:
-                    print("❌ 발행 실패")
-                count += 1
+                # ↑ edge (HIGH→LOW) 일 때만 count 발행
+                if prev_state == GPIO.HIGH:
+                    print(f"count: {count}")
+                    result = client.publish(TOPIC_PUB, str(count), qos=1)
+                    if result[0] == 0:
+                        print(f"📤 발행 성공 → {count}")
+                    else:   
+                        print("❌ 발행 실패")
+                    count += 1  
 
             # 간단 디바운싱
             time.sleep(DEBOUNCE_MS / 1000.0)
 
         else:
             # 버튼을 떼면 모터 정지
-            motor_stop()
+            if not motor_lock:
+                motor_stop()
 
         prev_state = cur_state
         time.sleep(0.01)
