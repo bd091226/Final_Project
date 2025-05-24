@@ -141,6 +141,7 @@ def departed_A(conn, cursor, vehicle_id=1):
     except Exception as e:
         print(f"❌ 상태 업데이트 실패 (차량 {vehicle_id}): {e}")
 
+# A차가 보관함에 도착할 시
 def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'): 
     """
     차량 도착 처리:

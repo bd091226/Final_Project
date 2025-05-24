@@ -98,7 +98,7 @@ def on_message(client, userdata, msg):
             print(f"📥 도착 메시지 수신: '{payload}'")
             if payload == "A차 목적지 도착":
                 print("🎯 A가 목적지에 도착")
-                zone_arrival_A(conn, cursor)
+                zone_arrival_A(conn, cursor) # 운행_상품 테이블 업데이트 
                 A_current_dest(client, operation_id)
                 # zone_id = get_next_unload_zone_for_vehicle(cursor, vehicle_id=1)
                 # if zone_id:
