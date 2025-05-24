@@ -5,7 +5,7 @@ import RPi.GPIO as GPIO
 import time
 from container_config import (
     BROKER, PORT,
-    TOPIC_SUB,
+    TOPIC_COUNT,
     TOPIC_PUB,
     TOPIC_PUB_DIST,
     TOPIC_STATUS,
@@ -69,7 +69,7 @@ def move_servo(pwm, angle):
 # --- MQTT 콜백 ---
 def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        client.subscribe(TOPIC_SUB, qos=1)
+        client.subscribe(TOPIC_COUNT, qos=1)
         client.subscribe(TOPIC_PUB_DIST, qos=1)
         client.subscribe(TOPIC_STATUS, qos=1)
         client.subscribe(TOPIC_ARRIVAL, qos=1)
@@ -82,12 +82,12 @@ def on_message(client, userdata, msg):
     payload = msg.payload.decode().strip()
     conn, cursor, pwm = userdata['db_pwm']
 
-    if topic == TOPIC_SUB: #A차 A차출발지에서 출발
+    if topic == TOPIC_COUNT: # A차 버튼을 눌렀을 때
         try:
             count = int(payload)
             button_A(cursor, conn, count)
             if count > 2:
-                departed_A(conn, cursor, vehicle_id=1) # A관련 데이터베이스?
+                departed_A(conn, cursor, vehicle_id=1) 
                 A_current_dest(client, operation_id)
         except ValueError:
             print("❌ 잘못된 숫자 payload")
