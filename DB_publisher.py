@@ -58,11 +58,19 @@ def A_current_dest(mqtt_client,operation_id): # A에게 보낼 목적지를 데�
         cursor.execute(sql, (operation_id,))
         row = cursor.fetchone()
         if row:
+<<<<<<< HEAD
             current_zone = row[0]
             msg = f"A차 {current_zone}로 출발" 
             print(f"[A-current] 운행_ID={operation_id}의 현재 목적지: {current_zone}") 
             mqtt_client.publish(TOPIC_A_CURRENT_DEST, msg, qos=1) # A에게 현재 목적지 발행
             print(f"[A-current] Published: {msg}")
+=======
+            next_zone = row[0]
+            msg = f"A차가 {next_zone}로 출발"
+            print(f"[A-next] 운행_ID={operation_id}의 다음 구역: {next_zone}")
+            mqtt_client.publish(TOPIC_A_NEXT, msg, qos=1)
+            print(f"[A-next] Published: {msg}")
+>>>>>>> f263b981b55f233c0070c57a20ad069e15e4da3f
         else:
             print(f"[A-next] 운행_ID={operation_id}에 남은 구역이 없습니다.")
     except Exception as e:
