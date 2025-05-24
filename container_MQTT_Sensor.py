@@ -12,14 +12,8 @@ from container_config import (
     TOPIC_ARRIVAL
 )
 
-<<<<<<< HEAD
-from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A
+from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A, departed_B
 from DB_publisher import A_current_dest
-=======
-from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle
-from container_DB import departed_A, departed_B
-
->>>>>>> f263b981b55f233c0070c57a20ad069e15e4da3f
 # --- 핀 설정 ---
 TRIG_PIN = 23
 ECHO_PIN = 24
