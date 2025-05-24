@@ -11,7 +11,8 @@ from container_config import (
     TOPIC_STATUS,
     TOPIC_ARRIVAL
 )
-from container_DB import update_load_count, insert_distance, process_arrival_A
+
+from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A
 
 # --- 핀 설정 ---
 TRIG_PIN = 23
@@ -84,10 +85,12 @@ def on_message(client, userdata, msg):
     if topic == TOPIC_SUB:
         try:
             count = int(payload)
-            update_load_count(cursor, conn, count)
-            if count > 5:
+            button_A(cursor, conn, count)
+            if count > 2:
                 client.publish(TOPIC_PUB, "A차 출발", qos=1)
                 print(f"🚗 A차 출발 메시지 발행 → {TOPIC_PUB}")
+                departed_A(conn, cursor, vehicle_id=1)
+                
         except ValueError:
             print("❌ 잘못된 숫자 payload")
 
@@ -101,11 +104,13 @@ def on_message(client, userdata, msg):
             move_servo(pwm, 90)
             time.sleep(0.5)
             move_servo(pwm, 0)
+            transfer_stock_zone_to_vehicle(conn, cursor)
+            
     elif topic == TOPIC_ARRIVAL: 
         print(f"📥 도착 메시지 수신: '{payload}'")
         if payload == "A차 목적지 도착":
             print("🎯 A가 목적지에 도착")
-            process_arrival_A(conn, cursor)
+            zone_arrival_A(conn, cursor)
 
 # --- 센서 루프 ---
 def run_sensor_loop(mqtt_client, conn, cursor):
@@ -113,8 +118,6 @@ def run_sensor_loop(mqtt_client, conn, cursor):
         while True:
             dist = measure_distance()
             print(f"📏 거리 측정: {dist} cm")
-
-            insert_distance(cursor, conn, dist)
 
             if dist < 5:
                 mqtt_client.publish(TOPIC_PUB_DIST, "B차 출발", qos=1)

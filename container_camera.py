@@ -1,7 +1,7 @@
 # container_camera.py
 
 import paho.mqtt.client as mqtt
-from container_DB import handle_qr_insert
+from container_DB import qr_insert
 
 # ─── MQTT 브로커 정보 ───────────────────────────────────────────
 BROKER   = "broker.hivemq.com"
@@ -23,7 +23,7 @@ def on_message(client, userdata, msg):
         type_, data = parts
         print(f"[PiB] Parsed QR - Type: {type_}, Data: {data}")
         # DB에 반영
-        handle_qr_insert(type_, data)
+        qr_insert(type_, data)
     else:
         print("[PiB] Invalid QR format; e4xpected '<지역> <상품>'")
 
