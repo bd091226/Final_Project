@@ -19,8 +19,8 @@ except KeyboardInterrupt:
     print("\n 종료 요청 받음. 프로세스 종료 중...")
     camera_proc.terminate()
     button_proc.terminate()
-    # dest_proc.terminate()
+    
     camera_proc.wait()
     button_proc.wait()
-    # dest_proc.wait()
+    
     print("종료")

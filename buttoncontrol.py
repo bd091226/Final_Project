@@ -2,6 +2,7 @@ import time
 import threading
 import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
+import next_dest
 
 # ─── 상수 정의 ───────────────────────────────────────
 BROKER       = "broker.hivemq.com"
@@ -22,7 +23,7 @@ GPIO.setup(MOTOR_IN1, GPIO.OUT)
 GPIO.setup(MOTOR_IN2, GPIO.OUT)
 GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-
+# 서보관련 함수 정의
 def motor_forward():
     GPIO.output(MOTOR_IN1, GPIO.HIGH)
     GPIO.output(MOTOR_IN2, GPIO.LOW)
@@ -34,9 +35,11 @@ def motor_stop():
 def task():
     global motor_lock
     time.sleep(3)  # 3초 대기
-    arrival_msg = "A차 목적지 도착"
-    print(f"🏁 {arrival_msg}")
-    client.publish("myhome/arrival", arrival_msg, qos=1)
+    
+    # destination = next_dest.current_destination
+    
+    print(f"A차 목적지 도착")
+    client.publish("myhome/arrival", "A차 목적지 도착", qos=1)
 
     # 모터 2초 작동
     motor_lock = True
@@ -58,11 +61,17 @@ def on_connect(client, userdata, flags, rc):
 
 def on_message(client, userdata, msg):
     global count
-    cmd = msg.payload.decode()
-    print(f"📬 명령 수신: {cmd}")
-    if cmd == "A차 출발":
+    payload = msg.payload.decode()
+    print(f"📬 명령 수신: {payload}")
+    if payload.startswith("A차가 ") and payload.endswith("로 출발"):
+        # 메시지에서 목적지만 추출
+        destination = payload[len("A차가 "):-len("로 출발")]
+        # next_dest 모듈에도 동기화
+        next_dest.current_destination = destination
+        
         count = 1
         print("🔄 count 초기화")
+        print(f"🚗 {destination}로 출발합니다!")
         threading.Thread(target=task).start()
         
 
@@ -73,6 +82,8 @@ client.on_connect = on_connect
 client.on_message = on_message
 client.connect(BROKER, PORT, keepalive=60)
 client.loop_start()
+# 목적지 수신기 시작 (next_dest.py의 MQTT listener 실행)
+next_dest.destination_listen()
 
 # ─── 메인 변수 ───────────────────────────────────────
 count = 1
