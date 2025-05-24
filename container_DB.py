@@ -54,60 +54,40 @@ def qr_insert(type_, product_type):
         conn.close()
 
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
-def button_A(cursor, conn, count):
+def button_A(cursor, conn, count, 운행_ID=None):
     try:
         # 1. A차의 적재 수량 업데이트
         cursor.execute(
-            """
-            UPDATE 차량
-            SET 현재_적재_수량 = %s
-            WHERE 차량_ID = 1
-            """,
+            "UPDATE 차량 SET 현재_적재_수량 = %s WHERE 차량_ID = 1",
             (count,)
         )
         print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
 
-        # 2. 가장 최근 등록된 상품 조회
+        # 2. 최근 상품 조회
         cursor.execute(
             """
-            SELECT 상품_ID, 구역_ID, 등록_시각 FROM 상품
-            ORDER BY 상품_ID DESC
-            LIMIT 1
-            """
+            SELECT 상품_ID, 구역_ID, 등록_시각 
+            FROM 상품 
+            ORDER BY 상품_ID DESC LIMIT 1"""
         )
         product = cursor.fetchone()
         if not product:
             print("❌ 등록된 상품이 없습니다.")
-            return
-
+            return None
         product_id, zone_id, 등록_시각 = product
 
-        # 3. 운행_기록 생성 or 찾기
+        # 3. 운행_기록 생성 or 주어진 ID 사용
         if count == 1:
             cursor.execute(
-                """
-                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
-                VALUES (1, NOW(), 0)
-                """
+                "INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태) VALUES (1, NOW(), '비운행중')"
             )
             운행_ID = cursor.lastrowid
             print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
+        elif 운행_ID is None:
+            print("❌ 운행_ID가 전달되지 않았습니다. count > 1인 경우 운행_ID 필요.")
+            return None
         else:
-            cursor.execute(
-                """
-                SELECT 운행_ID
-                FROM 운행_기록
-                WHERE 차량_ID = 1 AND 운행_상태 = '운행중'
-                ORDER BY 운행_ID DESC
-                LIMIT 1
-                """
-            )
-            result = cursor.fetchone()
-            if not result:
-                print("❌ 운행중인 운행을 찾을 수 없습니다.")
-                return
-            운행_ID = result[0]
-            print(f"🔄 기존 운행에 등록: 운행_ID={운행_ID}")
+            print(f"🔄 기존 운행_ID 사용: {운행_ID}")
 
         # 4. 운행_상품 등록
         cursor.execute(
@@ -118,12 +98,15 @@ def button_A(cursor, conn, count):
             """,
             (운행_ID, product_id, zone_id, count, 등록_시각)
         )
-        print(f"✅ 운행_상품 등록 완료: 상품 {product_id} → 운행 {운행_ID}, 등록 시간 복사됨")
+        print(f"✅ 운행_상품 등록 완료: 상품 {product_id} → 운행 {운행_ID}, 순번 {count}")
 
         conn.commit()
+        return 운행_ID  # 새로 만든 ID 또는 재사용한 ID 반환
 
     except Exception as e:
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
+        return None
+
 
 # A차가 A출발지에서 출발했다는 신호를 수신 받을 시
 def departed_A(conn, cursor, vehicle_id=1):
