@@ -1,84 +1,99 @@
-import RPi.GPIO as GPIO
 import time
 import threading
+import RPi.GPIO as GPIO
 import paho.mqtt.client as mqtt
-from container_dest import send_arrival 
+from container_dest import send_arrival
 
-BROKER = "broker.hivemq.com"   # 퍼블릭 MQTT 브로커 주소
-PORT   = 1883                  # 일반 MQTT 포트 번호
-TOPIC_PUB  = "myhome/button/count" # 버튼 누름 정보를 보낼 토픽, A가 토픽에 정보를 보냄
-TOPIC_SUB = "myhome/command"
+# ─── 상수 정의 ───────────────────────────────────────
+BROKER       = "broker.hivemq.com"
+PORT         = 1883
+TOPIC_PUB    = "myhome/button/count"
+TOPIC_SUB    = "myhome/command"
+DEBOUNCE_MS  = 50     # 버튼 디바운싱 (ms)
 
+MOTOR_IN1    = 22
+MOTOR_IN2    = 27
+BUTTON_PIN   = 17
 
-# 컨베이너 벨트 관련 GPIO 설정
-# IN3 = 17   # L298N IN1
-# IN4 = 27   # L298N IN2
-# GPIO.setup(IN3, GPIO.OUT)
-# GPIO.setup(IN4, GPIO.OUT)
-
-button_pin = 17 # 버튼 핀 번호
+# ─── GPIO 초기화 ────────────────────────────────────
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-GPIO.setup(button_pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN) # 버튼 기본 상태 LOW
+GPIO.setup(MOTOR_IN1, GPIO.OUT)
+GPIO.setup(MOTOR_IN2, GPIO.OUT)
+GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-def on_connect(client, userdata, flags, rc): # 브로커에 연결되었을때 한번만 호출
+# ─── MQTT 콜백 정의 ─────────────────────────────────
+def on_connect(client, userdata, flags, rc):
     if rc == 0:
-        print("👉 Connected to MQTT Broker")
+        print("👉 MQTT 연결 성공")
         client.subscribe(TOPIC_SUB, qos=1)
     else:
-        print(f"❌ Connection failed with code {rc}")
+        print(f"❌ MQTT 연결 실패 (코드 {rc})")
 
 def on_message(client, userdata, msg):
     global count
-    command = msg.payload.decode() 
-    print(f"📬 Received command from B: {command}")
-    
-    # 보관함에서 A차 출발이라는 명령어 수신 시
-    if command == "A차 출발":
-        count = 1 # count 초기화
-        print("🔄 count reset to 0")
+    cmd = msg.payload.decode()
+    print(f"📬 명령 수신: {cmd}")
+    if cmd == "A차 출발":
+        count = 1
+        print("🔄 count 초기화")
         threading.Timer(3.0, send_arrival).start()
 
-client = mqtt.Client()  # MQTT 클라이언트 객체 생성
+# ─── MQTT 클라이언트 설정 ───────────────────────────
+client = mqtt.Client()
 client.on_connect = on_connect
 client.on_message = on_message
-
-client.connect(BROKER, PORT, keepalive=60)  # 브로커에 연결 (60초 간격으로 살아있다는 신호 보냄)
+client.connect(BROKER, PORT, keepalive=60)
 client.loop_start()
 
-count=0 # 버튼 누름 횟수 카운트
-prev_input = GPIO.LOW # 이전상태저장
+# ─── 메인 변수 ───────────────────────────────────────
+count = 1
+prev_state = GPIO.HIGH
 
+# ─── 모터 제어 헬퍼 ──────────────────────────────────
+def motor_forward():
+    GPIO.output(MOTOR_IN1, GPIO.HIGH)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+
+def motor_stop():
+    GPIO.output(MOTOR_IN1, GPIO.LOW)
+    GPIO.output(MOTOR_IN2, GPIO.LOW)
+
+# ─── 버튼 상태 검사 및 MQTT 발행 ────────────────────
 try:
+    print("버튼을 누르고 있으면 모터가 계속 회전합니다.")
     while True:
-        if GPIO.input(button_pin) == GPIO.HIGH and prev_input == GPIO.LOW:
-            # 여기에 버튼이 눌렸을 때 실행할 코드
-            
-            print("count: ", count)
-            #payload = str(count) # MQTT 메시지 보낼 내용, 카운트 값을 문자열로 변환
-            # if GPIO.input(button_pin) == GPIO.HIGH:
-            #     # 버튼 눌림 → 정방향 회전
-            #     GPIO.output(IN3, GPIO.HIGH)
-            #     GPIO.output(IN4, GPIO.LOW)
-            # else:
-            #     # 버튼 안 눌림 → 정지
-            #     GPIO.output(IN3, GPIO.LOW)
-            #     GPIO.output(IN4, GPIO.LOW)
-            # time.sleep(0.05)
-            result = client.publish(TOPIC_PUB, str(count),qos=1) # 브로커에로 메시지 전송
-            count += 1
-            # 전송 결과 확인 (0이면 성공)
-            if result[0] == 0:
-                print(f"📤 [A] Published {count} to {TOPIC_PUB}")
-            else:
-                print("❌ [A] Publish failed")
-            time.sleep(0.2)
+        cur_state = GPIO.input(BUTTON_PIN)
 
-        prev_input = GPIO.input(button_pin) # 현재상태저장
+        if cur_state == GPIO.LOW:
+            # 버튼이 눌려 있는 동안 모터 구동
+            motor_forward()
+
+            # ↑ edge (HIGH→LOW) 일 때만 count 발행
+            if prev_state == GPIO.HIGH:
+                print(f"count: {count}")
+                result = client.publish(TOPIC_PUB, str(count), qos=1)
+                if result[0] == 0:
+                    print(f"📤 발행 성공 → {count}")
+                else:
+                    print("❌ 발행 실패")
+                count += 1
+
+            # 간단 디바운싱
+            time.sleep(DEBOUNCE_MS / 1000.0)
+
+        else:
+            # 버튼을 떼면 모터 정지
+            motor_stop()
+
+        prev_state = cur_state
         time.sleep(0.01)
+
 except KeyboardInterrupt:
     pass
+
 finally:
-    client.loop_stop() #루프 중지
-    client.disconnect() # 브로커와 연결 해제
-    GPIO.cleanup() # GPIO 핀 정리
+    client.loop_stop()
+    client.disconnect()
+    GPIO.cleanup()
+    print("종료 및 GPIO 클린업 완료")
