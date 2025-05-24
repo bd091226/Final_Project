@@ -7,8 +7,9 @@ import next_dest
 # ─── 상수 정의 ───────────────────────────────────────
 BROKER       = "broker.hivemq.com"
 PORT         = 1883
-TOPIC_PUB    = "myhome/button/count"
-TOPIC_SUB    = "myhome/command"
+TOPIC_COUNT    = "myhome/button/count" # 버튼 누름 횟수
+TOPIC_SUB    = "myhome/command" # MATT 연결확인 
+TOPIC_A_CURRENT_DEST    = "A_current_dest"  # 현재 A차 목적지 설정
 DEBOUNCE_MS  = 50     # 버튼 디바운싱 (ms)
 
 motor_lock = False
@@ -32,13 +33,12 @@ def motor_stop():
     GPIO.output(MOTOR_IN1, GPIO.LOW)
     GPIO.output(MOTOR_IN2, GPIO.LOW)
 
-def task():
+def task(destination):
     global motor_lock
     time.sleep(3)  # 3초 대기
-    
-    # destination = next_dest.current_destination
-    
-    print(f"A차 목적지 도착")
+
+    mag = f"A차 {destination} 도착"
+    print(mag)
     client.publish("myhome/arrival", "A차 목적지 도착", qos=1)
 
     # 모터 2초 작동
@@ -56,23 +56,20 @@ def on_connect(client, userdata, flags, rc):
     if rc == 0:
         print("👉 MQTT 연결 성공")
         client.subscribe(TOPIC_SUB, qos=1)
+        client.subscribe(TOPIC_A_CURRENT_DEST, qos=1)
     else:
         print(f"❌ MQTT 연결 실패 (코드 {rc})")
 
 def on_message(client, userdata, msg):
     global count
     payload = msg.payload.decode()
-    print(f"📬 명령 수신: {payload}")
-    if payload.startswith("A차가 ") and payload.endswith("로 출발"):
-        # 메시지에서 목적지만 추출
-        destination = payload[len("A차가 "):-len("로 출발")]
-        # next_dest 모듈에도 동기화
-        next_dest.current_destination = destination
-        
-        count = 1
-        print("🔄 count 초기화")
-        print(f"🚗 {destination}로 출발합니다!")
-        threading.Thread(target=task).start()
+    if msg.topic == TOPIC_A_CURRENT_DEST:
+        print(f"📬 명령 수신: {payload}") # A차가 목적지 수신
+        count = 1 # count 초기화
+        # "A차 02로 출발" 형식에서 목적지만 추출
+        if payload.startswith("A차 ") and payload.endswith("로 출발"):
+            destination = payload[len("A차 "):-len("로 출발")]
+        threading.Thread(target=task,args=(destination,)).start() # 3초 후에 목적지 도착이라는 문구 출력
         
 
 
@@ -104,7 +101,7 @@ try:
                 # ↑ edge (HIGH→LOW) 일 때만 count 발행
                 if prev_state == GPIO.HIGH:
                     print(f"count: {count}")
-                    result = client.publish(TOPIC_PUB, str(count), qos=1)
+                    result = client.publish(TOPIC_COUNT, str(count), qos=1)
                     if result[0] == 0:
                         print(f"📤 발행 성공 → {count}")
                     else:   
