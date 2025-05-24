@@ -73,10 +73,11 @@ def A_next_dest(operation_id):
 if __name__ == '__main__':
     mqtt_client = mqtt.Client()
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-
+    operation_id=100
     try:
         while True:
             check_saturation_and_publish()
+            A_next_dest(operation_id)
             time.sleep(10)
     except KeyboardInterrupt:
         print("종료 중...")

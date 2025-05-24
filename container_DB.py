@@ -82,15 +82,32 @@ def button_A(cursor, conn, count):
 
         product_id, zone_id = product
 
-        # 3. 운행_기록 생성
-        cursor.execute(
-            """
-            INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
-            VALUES (1, NOW(), 0)
-            """
-        )
-        운행_ID = cursor.lastrowid
-        print(f"✅ 운행 생성 완료: 운행_ID={운행_ID}")
+        # 3. 운행_기록 생성 or 찾기
+        if count == 1:
+            cursor.execute(
+                """
+                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
+                VALUES (1, NOW(), '진행중')
+                """
+            )
+            운행_ID = cursor.lastrowid
+            print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
+        else:
+            cursor.execute(
+                """
+                SELECT 운행_ID
+                FROM 운행_기록
+                WHERE 차량_ID = 1 AND 운행_상태 = '진행중'
+                ORDER BY 운행_ID DESC
+                LIMIT 1
+                """
+            )
+            result = cursor.fetchone()
+            if not result:
+                print("❌ 진행중인 운행을 찾을 수 없습니다.")
+                return
+            운행_ID = result[0]
+            print(f"🔄 기존 운행에 등록: 운행_ID={운행_ID}")
 
         # 4. 운행_상품 등록
         cursor.execute(
