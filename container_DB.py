@@ -58,30 +58,47 @@ def button_A(cursor, conn, count, 운행_ID=None):
     try:
         # 1. A차의 적재 수량 업데이트
         cursor.execute(
-            "UPDATE 차량 SET 현재_적재_수량 = %s WHERE 차량_ID = 1",
+            """
+            UPDATE 차량 
+            SET 현재_적재_수량 = %s 
+            WHERE 차량_ID = 1
+            """,
             (count,)
         )
         print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
 
-        # 2. 최근 상품 조회
-        cursor.execute(
-            "SELECT 상품_ID, 구역_ID, 등록_시각 FROM 상품 ORDER BY 상품_ID DESC LIMIT 1"
-        )
-        product = cursor.fetchone()
-        if not product:
-            print("❌ 등록된 상품이 없습니다.")
-            return None
-        product_id, zone_id, 등록_시각 = product
-
-        # 3. 운행_기록 생성 or 주어진 ID 사용
-        if count == 1:
+        # 2. 운행_ID 처리
+        if count == 1 or 운행_ID is None:
             cursor.execute(
-                "INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태) VALUES (1, NOW(), '비운행중')"
+                """
+                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
+                VALUES (1, NOW(), '비운행중')
+                """
             )
             운행_ID = cursor.lastrowid
             print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
         else:
             print(f"🔄 기존 운행_ID 사용: {운행_ID}")
+
+        # 3. 아직 등록되지 않은 가장 오래된 상품 1개 조회
+        cursor.execute(
+            """
+            SELECT s.상품_ID, s.구역_ID, s.등록_시각
+            FROM 상품 s
+            WHERE s.현재_상태 = '등록됨'
+            AND NOT EXISTS (
+                SELECT 1 FROM 운행_상품 us WHERE us.상품_ID = s.상품_ID
+            )
+            ORDER BY s.상품_ID ASC
+            LIMIT 1
+            """
+        )
+        product = cursor.fetchone()
+        if not product:
+            print("❌ 등록 대기 중인 상품이 없습니다.")
+            return 운행_ID
+
+        product_id, zone_id, 등록_시각 = product
 
         # 4. 운행_상품 등록
         cursor.execute(
@@ -95,11 +112,11 @@ def button_A(cursor, conn, count, 운행_ID=None):
         print(f"✅ 운행_상품 등록 완료: 상품 {product_id} → 운행 {운행_ID}, 순번 {count}")
 
         conn.commit()
-        return 운행_ID  # 새로 만든 ID 또는 재사용한 ID 반환
+        return 운행_ID
 
     except Exception as e:
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
-        return None
+        return 운행_ID
 
 # A차가 A출발지에서 출발했다는 신호를 수신 받을 시
 def departed_A(conn, cursor, vehicle_id=1):
