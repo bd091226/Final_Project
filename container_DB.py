@@ -80,9 +80,6 @@ def button_A(cursor, conn, count, 운행_ID=None):
             )
             운행_ID = cursor.lastrowid
             print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
-        elif 운행_ID is None:
-            print("❌ 운행_ID가 전달되지 않았습니다. count > 1인 경우 운행_ID 필요.")
-            return None
         else:
             print(f"🔄 기존 운행_ID 사용: {운행_ID}")
 
@@ -221,6 +218,7 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
 #         print(f"❌ 하차 구역 조회 실패: {e}")
 #         return None
 
+# B차 B차출발지에서 출발 
 def departed_B(conn, cursor, vehicle_id=2):
     """
     B차 출발 시 운행 상태를 '운행중'으로 갱신
