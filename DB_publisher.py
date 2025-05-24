@@ -58,7 +58,7 @@ def A_next_dest(operation_id):
         row = cursor.fetchone()
         if row:
             next_zone = row[0]
-            msg = f"A_NEXT_ZONE:{next_zone}"
+            msg = f"A차가 {next_zone}로 출발"
             print(f"[A-next] 운행_ID={operation_id}의 다음 구역: {next_zone}")
             mqtt_client.publish(TOPIC_A_NEXT, msg, qos=1)
             print(f"[A-next] Published: {msg}")

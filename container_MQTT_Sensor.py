@@ -12,7 +12,8 @@ from container_config import (
     TOPIC_ARRIVAL
 )
 
-from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A
+from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle
+from container_DB import departed_A, departed_B
 
 # --- 핀 설정 ---
 TRIG_PIN = 23
@@ -129,6 +130,7 @@ def run_sensor_loop(mqtt_client, conn, cursor):
             if dist < 5:
                 mqtt_client.publish(TOPIC_PUB_DIST, "B차 출발", qos=1)
                 print(f"🚗 MQTT 발행: 'B차 출발' → {TOPIC_PUB_DIST}")
+                departed_B(conn, cursor)
 
             time.sleep(1)
     except KeyboardInterrupt:
