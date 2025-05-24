@@ -14,7 +14,7 @@ DB_CONFIG = {
 MQTT_BROKER = 'broker.hivemq.com'
 MQTT_PORT = 1883
 MQTT_TOPIC = 'vehicle/B/start'
-#TOPIC_A_NEXT = 'vehicle/A/next'
+TOPIC_A_NEXT = 'vehicle/A/next'
 
 def check_saturation_and_publish():
     conn= None
@@ -40,35 +40,35 @@ def check_saturation_and_publish():
         if conn:
             conn.close()
 
-# def A_next_dest(operation_id):
+def A_next_dest(operation_id):
 
-#     conn = pymysql.connect(**DB_CONFIG)
-#     cursor = conn.cursor()
-#     try:
-#         sql = """
-#             SELECT 구역_ID
-#             FROM 운행_상품
-#             WHERE 운행_ID = %s
-#               AND A차운송_시각 IS NOT NULL
-#               AND 투입_시각 IS NULL
-#             ORDER BY 적재_순번 ASC
-#             LIMIT 1
-#         """
-#         cursor.execute(sql, (operation_id,))
-#         row = cursor.fetchone()
-#         if row:
-#             next_zone = row[0]
-#             msg = f"A_NEXT_ZONE:{next_zone}"
-#             print(f"[A-next] 운행_ID={operation_id}의 다음 구역: {next_zone}")
-#             mqtt_client.publish(TOPIC_A_NEXT, msg, qos=1)
-#             print(f"[A-next] Published: {msg}")
-#         else:
-#             print(f"[A-next] 운행_ID={operation_id}에 남은 구역이 없습니다.")
-#     except Exception as e:
-#         print("MySQL 오류 (A-next):", e)
-#     finally:
-#         cursor.close()
-#         conn.close()
+    conn = pymysql.connect(**DB_CONFIG)
+    cursor = conn.cursor()
+    try:
+        sql = """
+            SELECT 구역_ID
+            FROM 운행_상품
+            WHERE 운행_ID = %s
+              AND A차운송_시각 IS NOT NULL
+              AND 투입_시각 IS NULL
+            ORDER BY 적재_순번 ASC
+            LIMIT 1
+        """
+        cursor.execute(sql, (operation_id,))
+        row = cursor.fetchone()
+        if row:
+            next_zone = row[0]
+            msg = f"A_NEXT_ZONE:{next_zone}"
+            print(f"[A-next] 운행_ID={operation_id}의 다음 구역: {next_zone}")
+            mqtt_client.publish(TOPIC_A_NEXT, msg, qos=1)
+            print(f"[A-next] Published: {msg}")
+        else:
+            print(f"[A-next] 운행_ID={operation_id}에 남은 구역이 없습니다.")
+    except Exception as e:
+        print("MySQL 오류 (A-next):", e)
+    finally:
+        cursor.close()
+        conn.close()
 
 if __name__ == '__main__':
     mqtt_client = mqtt.Client()
