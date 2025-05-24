@@ -82,7 +82,7 @@ def on_message(client, userdata, msg):
     payload = msg.payload.decode().strip()
     conn, cursor, pwm = userdata['db_pwm']
 
-    if topic == TOPIC_SUB:
+    if topic == TOPIC_SUB: #A차 A차출발지에서 출발
         try:
             count = int(payload)
             button_A(cursor, conn, count)
@@ -90,14 +90,27 @@ def on_message(client, userdata, msg):
                 client.publish(TOPIC_PUB, "A차 출발", qos=1)
                 print(f"🚗 A차 출발 메시지 발행 → {TOPIC_PUB}")
                 departed_A(conn, cursor, vehicle_id=1)
-                
         except ValueError:
             print("❌ 잘못된 숫자 payload")
 
-    elif topic == TOPIC_PUB_DIST:
+    elif topic == TOPIC_ARRIVAL:  #A차 구역함 도착
+            print(f"📥 도착 메시지 수신: '{payload}'")
+            if payload == "A차 목적지 도착":
+                print("🎯 A가 목적지에 도착")
+                zone_arrival_A(conn, cursor)
+                
+                # zone_id = get_next_unload_zone_for_vehicle(cursor, vehicle_id=1)
+                # if zone_id:
+                #     client.publish("unload/zone", zone_id, qos=1)
+                #     print(f"📤 하차 지시 MQTT 발행 → unload/zone: {zone_id}")
+                # else:
+                #     client.publish("unload/complete", "물품을 다 운송했습니다. 출발지로 돌아가십시오.", qos=1)
+                #     print("✅ 모든 물품 하차 완료 → 복귀 지시 MQTT 발행")
+            
+    elif topic == TOPIC_PUB_DIST: 
         print(f"📥 B차 거리 조건 충족 메시지 수신: '{payload}'")
 
-    elif topic == TOPIC_STATUS:
+    elif topic == TOPIC_STATUS: 
         print(f"📥 B차 상태 메시지 수신: '{payload}'")
         if payload == "B차 목적지 도착":
             print("🎯 B차가 목적지에 도착했습니다! 서보모터를 90°로 회전합니다.")
@@ -105,12 +118,6 @@ def on_message(client, userdata, msg):
             time.sleep(0.5)
             move_servo(pwm, 0)
             transfer_stock_zone_to_vehicle(conn, cursor)
-            
-    elif topic == TOPIC_ARRIVAL: 
-        print(f"📥 도착 메시지 수신: '{payload}'")
-        if payload == "A차 목적지 도착":
-            print("🎯 A가 목적지에 도착")
-            zone_arrival_A(conn, cursor)
 
 # --- 센서 루프 ---
 def run_sensor_loop(mqtt_client, conn, cursor):
