@@ -38,12 +38,37 @@ def update_load_order(cursor, conn, count):
     except Exception as e:
         print(f"❌ 적재 수량 업데이트 실패: {e}")
 
+def process_arrival_A(conn, cursor):
+    """
+    A차 도착 처리: 적재량 감소, 구역 '02' 보관 수량 증가.
+    """
+    try:
+        cursor.execute(
+            """
+            UPDATE 차량
+            SET 현재_적재_수량 = GREATEST(현재_적재_수량 - 1, 0)
+            WHERE 차량_ID = 1
+            """
+        )
+        cursor.execute(
+            """
+            UPDATE 구역
+            SET 현재_보관_수량 = 현재_보관_수량 + 1
+            WHERE 구역_ID = '02'
+            """
+        )
+        conn.commit()
+        print("✅ A차 도착 처리 완료 (적재↓, 보관↑)")
+    except Exception as e:
+        print(f"❌ A차 도착 처리 실패: {e}")
+
+
 def handle_qr_insert(type_, product_type):
     zone_map = {
-        '서울': 'S',
-        '경상도': 'G',
-        '경기도': 'K',
-        '강원도': 'W'
+        '서울': '02',
+        '경기': '031',
+        '경북': '054',
+        '강원': '033'
     }
     zone = zone_map.get(type_)
     if not zone:

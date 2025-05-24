@@ -11,7 +11,7 @@ from container_config import (
     TOPIC_STATUS,
     TOPIC_ARRIVAL
 )
-from container_DB import update_load_count, insert_distance
+from container_DB import update_load_count, insert_distance, process_arrival_A
 
 # --- 핀 설정 ---
 TRIG_PIN = 23
@@ -105,7 +105,7 @@ def on_message(client, userdata, msg):
         print(f"📥 도착 메시지 수신: '{payload}'")
         if payload == "A차 목적지 도착":
             print("🎯 A가 목적지에 도착")
-
+            process_arrival_A(conn, cursor)
 
 # --- 센서 루프 ---
 def run_sensor_loop(mqtt_client, conn, cursor):
