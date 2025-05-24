@@ -12,15 +12,20 @@ from container_config import (
     TOPIC_ARRIVAL
 )
 
+<<<<<<< HEAD
+from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A
+from DB_publisher import A_current_dest
+=======
 from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle
 from container_DB import departed_A, departed_B
 
+>>>>>>> f263b981b55f233c0070c57a20ad069e15e4da3f
 # --- 핀 설정 ---
 TRIG_PIN = 23
 ECHO_PIN = 24
 SERVO_PIN = 12
 gpio_initialized = False  # 플래그로 중복 초기화 방지
-
+operation_id=100
 # --- GPIO 초기화 ---
 def initialize_gpio():
     global gpio_initialized
@@ -88,9 +93,8 @@ def on_message(client, userdata, msg):
             count = int(payload)
             button_A(cursor, conn, count)
             if count > 2:
-                client.publish(TOPIC_PUB, "A차 출발", qos=1)
-                print(f"🚗 A차 출발 메시지 발행 → {TOPIC_PUB}")
-                departed_A(conn, cursor, vehicle_id=1)
+                departed_A(conn, cursor, vehicle_id=1) # A관련 데이터베이스?
+                A_current_dest(client, operation_id)
         except ValueError:
             print("❌ 잘못된 숫자 payload")
 

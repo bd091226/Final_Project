@@ -66,20 +66,40 @@ def button_A(cursor, conn, count, 운행_ID=None):
         # 2. 최근 상품 조회
         cursor.execute(
             """
+<<<<<<< HEAD
             SELECT 상품_ID, 구역_ID, 등록_시각 
             FROM 상품 
             ORDER BY 상품_ID DESC LIMIT 1"""
+=======
+            SELECT 상품_ID, 구역_ID FROM 상품
+            ORDER BY 상품_ID DESC
+            LIMIT 1
+            """
+>>>>>>> c6fadb3c0b52a4097acf62e65c77a901c2532eee
         )
         product = cursor.fetchone()
         if not product:
             print("❌ 등록된 상품이 없습니다.")
+<<<<<<< HEAD
             return None
         product_id, zone_id, 등록_시각 = product
+=======
+            return
+
+        product_id, zone_id = product
+>>>>>>> c6fadb3c0b52a4097acf62e65c77a901c2532eee
 
         # 3. 운행_기록 생성 or 주어진 ID 사용
         if count == 1:
             cursor.execute(
+<<<<<<< HEAD
                 "INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태) VALUES (1, NOW(), '비운행중')"
+=======
+                """
+                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
+                VALUES (1, NOW(), '진행중')
+                """
+>>>>>>> c6fadb3c0b52a4097acf62e65c77a901c2532eee
             )
             운행_ID = cursor.lastrowid
             print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
@@ -87,16 +107,34 @@ def button_A(cursor, conn, count, 운행_ID=None):
             print("❌ 운행_ID가 전달되지 않았습니다. count > 1인 경우 운행_ID 필요.")
             return None
         else:
+<<<<<<< HEAD
             print(f"🔄 기존 운행_ID 사용: {운행_ID}")
+=======
+            cursor.execute(
+                """
+                SELECT 운행_ID
+                FROM 운행_기록
+                WHERE 차량_ID = 1 AND 운행_상태 = '진행중'
+                ORDER BY 운행_ID DESC
+                LIMIT 1
+                """
+            )
+            result = cursor.fetchone()
+            if not result:
+                print("❌ 진행중인 운행을 찾을 수 없습니다.")
+                return
+            운행_ID = result[0]
+            print(f"🔄 기존 운행에 등록: 운행_ID={운행_ID}")
+>>>>>>> c6fadb3c0b52a4097acf62e65c77a901c2532eee
 
         # 4. 운행_상품 등록
         cursor.execute(
             """
             INSERT INTO 운행_상품 (
                 운행_ID, 상품_ID, 구역_ID, 적재_순번, 등록_시각
-            ) VALUES (%s, %s, %s, %s, %s)
+            ) VALUES (%s, %s, %s, %s, NOW())
             """,
-            (운행_ID, product_id, zone_id, count, 등록_시각)
+            (운행_ID, product_id, zone_id, count)
         )
         print(f"✅ 운행_상품 등록 완료: 상품 {product_id} → 운행 {운행_ID}, 순번 {count}")
 
@@ -111,11 +149,10 @@ def button_A(cursor, conn, count, 운행_ID=None):
 # A차가 A출발지에서 출발했다는 신호를 수신 받을 시
 def departed_A(conn, cursor, vehicle_id=1):
     """
-    지정된 차량의 상품 상태를 'A차운송중'으로,
-    운행 상태를 '운행중'으로 변경
+    지정된 차량에 적재된 상품들의 상태를 'A차운송중'으로 변경
+    (조건: 현재_상태가 '등록됨'인 상품만)
     """
     try:
-        # 1. 상품 상태 변경
         cursor.execute(
             """
             UPDATE 상품
@@ -127,23 +164,8 @@ def departed_A(conn, cursor, vehicle_id=1):
             """,
             (vehicle_id,)
         )
-        
-        # 2. 운행 상태 변경
-        cursor.execute(
-            """
-            UPDATE 운행_기록
-            SET 운행_상태 = '운행중'
-            WHERE 차량_ID = %s
-              AND 운행_상태 = '비운행중'
-            ORDER BY 운행_ID DESC
-            LIMIT 1
-            """,
-            (vehicle_id,)
-        )
-
         conn.commit()
-        print(f"✅ 차량 {vehicle_id}: 상품 상태 'A차운송중', 운행 상태 '운행중' 으로 변경 완료")
-
+        print(f"✅ 차량 {vehicle_id} 상품 상태 'A차운송중'으로 업데이트 완료")
     except Exception as e:
         print(f"❌ 상태 업데이트 실패 (차량 {vehicle_id}): {e}")
 
@@ -181,7 +203,7 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
             """
             SELECT 운행_ID
             FROM 운행_기록
-            WHERE 차량_ID = %s AND 운행_상태 = '운행중'
+            WHERE 차량_ID = %s AND 운행_상태 = '진행중'
             ORDER BY 운행_ID DESC
             LIMIT 1
             """,
@@ -189,7 +211,7 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
         )
         result = cursor.fetchone()
         if not result:
-            print("❌ 운행중인 운행이 없습니다.")
+            print("❌ 진행중 운행이 없습니다.")
             return
         운행_ID = result[0]
 
@@ -241,27 +263,6 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
 #         print(f"❌ 하차 구역 조회 실패: {e}")
 #         return None
 
-def departed_B(conn, cursor, vehicle_id=2):
-    """
-    B차 출발 시 운행 상태를 '운행중'으로 갱신
-    """
-    try:
-        cursor.execute(
-            """
-            UPDATE 운행_기록
-            SET 운행_상태 = '운행중'
-            WHERE 차량_ID = %s
-              AND 운행_상태 = '비운행중'
-            ORDER BY 운행_ID DESC
-            LIMIT 1
-            """,
-            (vehicle_id,)
-        )
-        conn.commit()
-        print(f"✅ B차 운행 상태 '운행중'으로 변경 완료")
-    except Exception as e:
-        print(f"❌ B차 운행 상태 변경 실패: {e}")
-
 # B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
 def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
     try:
@@ -293,7 +294,7 @@ def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
             """
             SELECT 운행_ID
             FROM 운행_기록
-            WHERE 차량_ID = %s AND 운행_상태 = '운행중'
+            WHERE 차량_ID = %s AND 운행_상태 = '진행중'
             ORDER BY 운행_ID DESC
             LIMIT 1
             """,
@@ -301,7 +302,7 @@ def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
         )
         row = cursor.fetchone()
         if not row:
-            print("❌ 운행중인 운행 없음")
+            print("❌ 진행중인 운행 없음")
             return
         운행_ID = row[0]
 
