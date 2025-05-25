@@ -39,7 +39,7 @@ void send_startdest()
         return;
     }
     rc = MQTTClient_waitForCompletion(client, token, TIMEOUT);
-    printf("[PUBLISH] \"%s\\n",msg);
+    printf("[PUBLISH] %s\n",msg);
 }
 
 // 메시지가 도착 했을때 호출 되는 것
@@ -52,7 +52,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     memcpy(msgPayload, payloadptr, message->payloadlen);
     msgPayload[message->payloadlen] = '\0';
 
-    printf("Received message on topic %s: %s\n", topicName, msgPayload);
+    printf("메시지 수신: [%s] → %s\n", topicName, msgPayload);
+
 
     // 수신한 토픽이 storage/count일 경우
     if (strcmp(topicName, TOPIC_COUNT) == 0) {
@@ -97,9 +98,6 @@ int main(int argc, char *argv[])
     // delivered : 메시지 발송 완료 콜백
 
     // 이 라인 추가
-    MQTTClient_subscribe(client, TOPIC_A_ARRIVED, QOS);
-
-
     if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
         printf("Failed to connect, return code %d\n", rc);
         return -1;
@@ -107,9 +105,9 @@ int main(int argc, char *argv[])
 
     // 연결 성공시 출력
     printf("Connected to MQTT broker, subscribing to topic: %s\n", TOPIC_COUNT);
+    
     MQTTClient_subscribe(client, TOPIC_COUNT, QOS);
-
-    // 메시지 수신을 계속 대기 (무한 루프)
+    MQTTClient_subscribe(client, TOPIC_A_ARRIVED, QOS);
     // 메시지 수신을 계속 대기 (무한 루프)
     while (1)
     {
