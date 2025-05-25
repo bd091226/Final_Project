@@ -6,7 +6,8 @@
 #define ADDRESS     "tcp://broker.hivemq.com:1883"
 #define CLIENTID    "RaspberryPi_Container"   // 다른 클라이언트 ID 사용 권장
 #define TOPIC_COUNT       "storage/count" // count 값 수신
-#define PUB_TOPIC   "storage/startdest" 
+#define TOPIC_A_STARTDEST   "storage/startdest" 
+#define TOPIC_A_ARRIVED "storage/arrived"  // 목적지 도착 메시지 수신 토픽
 #define QOS         1
 #define TIMEOUT     10000L
 
@@ -29,13 +30,13 @@ void send_startdest() {
     pubmsg.retained = 0;
 
     MQTTClient_deliveryToken token;
-    int rc = MQTTClient_publishMessage(client, PUB_TOPIC, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_A_STARTDEST, &pubmsg, &token);
     if (rc != MQTTCLIENT_SUCCESS) {
         printf("Failed to publish start command, return code %d\n", rc);
         return;
     }
     rc = MQTTClient_waitForCompletion(client, token, TIMEOUT);
-    printf("Start command message delivered\n");
+    printf("[PUBLISH] \"%s\\n",msg);
 }
 
 // 메시지가 도착 했을때 호출 되는 것
@@ -49,12 +50,20 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     printf("Received message on topic %s: %s\n", topicName, msgPayload);
 
-    // 문자열을 정수로 변환
-    int count = atoi(msgPayload);
+    // 수신한 토픽이 storage/count일 경우
+    if (strcmp(topicName, TOPIC_COUNT) == 0) {
+        int count = atoi(msgPayload);
 
-    // count가 2 초과일 때 목적지 출발 메시지 전송
-    if (count > 2) {
-        send_startdest();
+        if (count > 2) {
+            send_startdest();
+        }
+    }
+    // 수신한 토픽이 storage/arrived일 경우
+    if (strcmp(topicName, TOPIC_A_ARRIVED) == 0) {
+        if (strcmp(msgPayload, "목적지 도착") == 0) {
+            printf("✅ A차가 목적지에 도착했습니다. 필요한 동작을 수행하세요.\n");
+            // 여기서 알림, 로직 처리 등 원하는 동작 수행
+        }
     }
 
     MQTTClient_freeMessage(&message);
@@ -80,6 +89,10 @@ int main(int argc, char* argv[]) {
     // connlost : 연결 끊김 콜백
     // msgarrvd : 메시지 수신 콜백
     // delivered : 메시지 발송 완료 콜백
+
+    // 이 라인 추가
+    MQTTClient_subscribe(client, TOPIC_A_ARRIVED, QOS);
+
 
     if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
         printf("Failed to connect, return code %d\n", rc);
