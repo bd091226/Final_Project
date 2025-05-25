@@ -142,16 +142,32 @@ def departed_A(conn, cursor, vehicle_id=1):
         print(f"❌ 상태 업데이트 실패 (차량 {vehicle_id}): {e}")
 
 # A차가 보관함에 도착할 시
+# zone_id는 나중에 A차의 목적지가 어디인지 알아내서 바꿔야할 것
 def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'): 
     """
-    차량 도착 처리:
-    - 적재량 1 감소
+    - 구역 보관 수량 초과 여부 확인
+    - 차량 적재량 1 감소
     - 구역 보관 수량 1 증가
-    - 해당 구역에 속한 상품 상태를 '투입됨'으로 변경
-    - 운행_상품.투입_시각도 기록
+    - 운행_상품의 '투입됨', 투입_시각 기록, 상품의 'A차운송중' 변화
+    - 보관 수량 확인 후 포화 여부 업데이트
+    - 포화 업데이트시 포화_시각 기록
     """
     try:
-        # 차량 적재 수량 감소
+        # 보관 수량 초과 여부 확인
+        cursor.execute(
+            """
+            SELECT 현재_보관_수량, 최대_보관_수량
+            FROM 구역
+            WHERE 구역_ID = %s
+            """,
+            (zone_id,)
+        )
+        current, maximum = cursor.fetchone()
+        if current >= maximum:
+            print(f"❌ 보관 수량 초과: 현재 {current}, 최대 {maximum}")
+            return
+
+        # 차량 적재 수량 1 감소
         cursor.execute(
             """
             UPDATE 차량
@@ -161,7 +177,7 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
             (vehicle_id,)
         )
 
-        # 구역 보관 수량 증가
+        # 구역 보관 수량 1 증가
         cursor.execute(
             """
             UPDATE 구역
@@ -204,6 +220,39 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
             (운행_ID, zone_id)
         )
 
+        # 보관 수량 확인 후 포화 여부 업데이트
+        cursor.execute(
+            """
+            SELECT 현재_보관_수량, 최대_보관_수량
+            FROM 구역
+            WHERE 구역_ID = %s
+            """,
+            (zone_id,)
+        )
+        current, maximum = cursor.fetchone()
+
+        포화값 = 1 if current == maximum else 0
+
+        cursor.execute(
+            """
+            UPDATE 구역
+            SET 포화_여부 = %s
+            WHERE 구역_ID = %s
+            """,
+            (포화값, zone_id)
+        )
+
+        # 포화_여부가 1로 바뀌었을 때만 포화_시각을 기록
+        if 포화값 == 1:
+            cursor.execute(
+                """
+                UPDATE 구역
+                SET 포화_시각 = NOW()
+                WHERE 구역_ID = %s
+                """,
+                (zone_id,)
+            )
+            
         conn.commit()
         print(f"✅ 차량 {vehicle_id} → 구역 {zone_id} 도착 처리 완료 (적재↓, 보관↑, 상태→투입됨)")
     except Exception as e:
@@ -284,7 +333,13 @@ def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
             (zone_id,)
         )
 
-        # 4. 현재 운행 중인 운행_ID 가져오기
+        # 4. 포화 여부 0으로 추기화
+        cursor.execute(
+            "UPDATE 구역 SET 포화_여부 = 0, 포화_시각 = NULL WHERE 구역_ID = %s",
+            (zone_id,)
+        )
+        
+        # 5. 현재 운행 중인 운행_ID 가져오기
         cursor.execute(
             """
             SELECT 운행_ID
@@ -301,7 +356,7 @@ def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
             return
         운행_ID = row[0]
 
-        # 5. 상품 상태 업데이트 + B차운송_시각 기록
+        # 6. 상품 상태 업데이트 + B차운송_시각 기록
         cursor.execute(
             """
             UPDATE 상품

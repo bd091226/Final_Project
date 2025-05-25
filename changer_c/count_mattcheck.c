@@ -2,23 +2,26 @@
 #include <stdlib.h>
 #include <string.h>
 #include <MQTTClient.h>
+#include <unistd.h>
 
-#define ADDRESS     "tcp://broker.hivemq.com:1883"
-#define CLIENTID    "RaspberryPi_Container"   // 다른 클라이언트 ID 사용 권장
-#define TOPIC       "storage/count"
-#define QOS         1
-#define TIMEOUT     10000L
+#define ADDRESS "tcp://broker.hivemq.com:1883"
+#define CLIENTID "RaspberryPi_Container" // 다른 클라이언트 ID 사용 권장
+#define TOPIC "storage/count"
+#define QOS 1
+#define TIMEOUT 10000L
 
 MQTTClient client;
 
 volatile int connected = 0;
 
-void delivered(void *context, MQTTClient_deliveryToken dt) {
+void delivered(void *context, MQTTClient_deliveryToken dt)
+{
     // 메시지 발송 완료 콜백 (필요시 사용)
 }
 
-int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
-    char* payloadptr = (char*)message->payload;
+int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
+{
+    char *payloadptr = (char *)message->payload;
 
     // 수신 메시지를 문자열로 복사
     char msgPayload[message->payloadlen + 1];
@@ -33,12 +36,14 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     return 1;
 }
 
-void connlost(void *context, char *cause) {
+void connlost(void *context, char *cause)
+{
     printf("Connection lost: %s\n", cause);
     connected = 0;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[])
+{
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     int rc;
 
@@ -47,7 +52,8 @@ int main(int argc, char* argv[]) {
 
     MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, delivered);
 
-    if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
+    if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS)
+    {
         printf("Failed to connect, return code %d\n", rc);
         return -1;
     }
@@ -56,13 +62,10 @@ int main(int argc, char* argv[]) {
     MQTTClient_subscribe(client, TOPIC, QOS);
 
     // 메시지 수신을 계속 대기 (무한 루프)
-    while(1) {
-        // sleep 등으로 CPU 점유율 낮추기
-        #ifdef _WIN32
-            Sleep(1000);
-        #else
-            sleep(1);
-        #endif
+    // 메시지 수신을 계속 대기 (무한 루프)
+    while (1)
+    {
+        sleep(1); // Linux에서는 이것만 필요
     }
 
     MQTTClient_disconnect(client, 10000);
