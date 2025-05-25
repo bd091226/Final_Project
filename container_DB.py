@@ -258,33 +258,6 @@ def zone_arrival_A(conn, cursor, vehicle_id=1, zone_id='02'):
     except Exception as e:
         print(f"❌ 차량 {vehicle_id} 도착 처리 실패: {e}")
         
-# # A차 다음 목적지 탐색
-# def get_next_zone_for_unloading(cursor, 운행_ID):
-#     """
-#     운행_ID 기준으로 아직 투입되지 않은 상품 중,
-#     A차운송_시각은 존재하고, 투입_시각은 NULL인 상품의 구역_ID 중 가장 빠른 순번 하나 반환
-#     """
-#     try:
-#         cursor.execute(
-#             """
-#             SELECT 구역_ID
-#             FROM 운행_상품
-#             WHERE 운행_ID = %s
-#               AND A차운송_시각 IS NOT NULL
-#               AND 투입_시각 IS NULL
-#             ORDER BY 적재_순번 ASC
-#             LIMIT 1
-#             """,
-#             (운행_ID,)
-#         )
-#         result = cursor.fetchone()
-#         if result:
-#             return result[0]
-#         return None
-#     except Exception as e:
-#         print(f"❌ 하차 구역 조회 실패: {e}")
-#         return None
-
 # B차 B차출발지에서 출발 
 def departed_B(conn, cursor, vehicle_id=2):
     """
