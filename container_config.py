@@ -1,9 +1,9 @@
 DB_CONFIG = {
-    "user": "Project_19",
-    "password": "1234",
-    "host": "192.168.137.148",
-    "database": "Project_19",
-    "charset": "utf8"
+    "user": "user",
+    "password": "kosta-final-250519",
+    "host": "13.125.155.221",
+    "database": "Final_Project",
+    "charset": "utf8mb4",
 }
 
 BROKER        = "broker.hivemq.com"
