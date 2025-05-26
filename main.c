@@ -34,7 +34,7 @@ void send_arrived() {
         printf("Failed to publish arrived message, rc=%d\n", rc);
         return;
     }
-    MQTTClient_waitForCompletion(client, token, TIMEOUT);
+    //MQTTClient_waitForCompletion(client, token, TIMEOUT);
     printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_ARRIVED);
 }
 
@@ -58,7 +58,7 @@ void send_count() {
         printf("Failed to publish message, return code %d\n", rc);
         return;
     }
-    rc = MQTTClient_waitForCompletion(client, token, TIMEOUT);
+    //rc = MQTTClient_waitForCompletion(client, token, TIMEOUT);
     printf("Message with count %d delivered\n", count);
 }
 
@@ -108,7 +108,6 @@ int main() {
         int buttonState = digitalRead(BUTTON_PIN);
         if (lastButtonState == HIGH && buttonState == LOW) {
             // 버튼 눌림 감지
-            
             printf("Button pressed! Sending count: %d\n", count);
             send_count();
             count++;
