@@ -15,11 +15,11 @@
 MQTTClient client; 
 
 // db_access.py에서 목적지 구역 ID를 가져오는 함수
-char* fetch_saturated_zone() {
+char* B_start() {
     static char result[64];
     FILE *fp = popen("python3 -c \""
-    "from db_access import fetch_saturated_zone; "
-    "zone = fetch_saturated_zone(); "
+    "from db_access import B_start; "
+    "zone = B_start(); "
     "print(zone if zone else '')"
     "\"", 
     "r");
@@ -46,7 +46,11 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     msg[message->payloadlen] = '\0';
 
     printf("[수신] 토픽: %s, 메시지: %s\n", topicName, msg);
-
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),"python3 -c \"from db_access import mark_arrival; mark_arrival('%s')\"",msg);
+    FILE *fp = popen(cmd, "r");
+    if (fp) pclose(fp);
+    else fprintf(stderr, "Failed to call mark_arrival for zone %s\n", msg);
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
     return 1;
@@ -99,7 +103,7 @@ int main(int argc, char *argv[]) {
     MQTTClient_subscribe(client, TOPIC_B_ARRIVED, QOS);
     printf("Subscribed to topic: %s\n", TOPIC_B_ARRIVED);
     // 한 번만 구역 ID 조회 & 발행
-    char *zone = fetch_saturated_zone();
+    char *zone = B_start();
     if (zone && *zone) {
         publish_zone(zone);
     } else {
