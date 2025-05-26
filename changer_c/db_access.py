@@ -5,10 +5,10 @@ import pymysql  # pip3 install pymysql
 
 # ——— DB 접속 정보 ———
 DB_CONFIG = {
-    "user": "Project_19",
+    "user": "Final",
     "password": "1234",
-    "host": "192.168.137.148",
-    "database": "Project_19",
+    "host": "192.168.137.215",
+    "database": "delivery",
     "charset": "utf8"
 }
 
