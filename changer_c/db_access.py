@@ -12,6 +12,25 @@ DB_CONFIG = {
     "charset": "utf8"
 }
 
+def A_start():
+    """포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환"""
+    conn = pymysql.connect(**DB_CONFIG)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 구역_ID
+                FROM 운행_상품
+                WHERE 운행_ID = %s
+                AND A차운송_시각 IS NOT NULL
+                AND 투입_시각 IS NULL
+                ORDER BY 적재_순번 ASC
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+
 
 def B_start():
     """포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환"""
