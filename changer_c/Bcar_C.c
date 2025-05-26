@@ -10,7 +10,28 @@
 #define QOS             1
 #define TIMEOUT         10000L
 
-extern char* fetch_saturated_zone();  // Python 모듈로부터 zone ID를 호출
+char* fetch_saturated_zone() {
+    static char result[64];
+    FILE *fp = popen("python3 -c \""
+    "from db_access import fetch_saturated_zone; "
+    "zone = fetch_saturated_zone(); "
+    "print(zone if zone else '')"
+    "\"", 
+    "r"
+);
+    if (fp == NULL) {
+        fprintf(stderr, "Failed to run Python inline script\n");
+        return NULL;
+    }
+    if (fgets(result, sizeof(result), fp) != NULL) {
+        result[strcspn(result, "\n")] = 0;  // 개행 제거
+    } else {
+        pclose(fp);
+        return NULL;
+    }
+    pclose(fp);
+    return result;
+}
 
 MQTTClient client;
 
