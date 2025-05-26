@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -10,7 +11,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// 테스트 환경
 type Product struct {
 	gorm.Model
 	ID            int    `gorm:"primaryKey"`
@@ -59,103 +59,12 @@ type OperationProduct struct {
 	BEndTime     *time.Time
 }
 
-// 배포 환경
-// type 상품 struct {
-// 	상품_ID int    `json:"상품_ID" gorm:"primaryKey;autoIncrement"`
-// 	상품_종류 string `json:"상품_종류" gorm:"type:char(50)"`
-// 	구역_ID string `json:"구역_ID" gorm:"type:char(3);primaryKey;foreignKey:구역_ID"`
-// 	현재_상태 string `json:"현재_상태" gorm:"type:char(50)"`
-// }
-
-// type 구역 struct {
-// 	구역_ID    string `json:"구역_ID" gorm:"type:char(3);primaryKey"`
-// 	구역_명     string `json:"구역_명" gorm:"type:char(50)"`
-// 	좌표_X     int    `json:"좌표_X"`
-// 	좌표_Y     int    `json:"좌표_Y"`
-// 	최대_보관_수량 int    `json:"최대_보관_수량"`
-// 	현재_보관_수량 int    `json:"현재_보관_수량"`
-// 	포화_여부    bool   `json:"포화_여부"`
-// }
-
-// type 차량 struct {
-// 	차량_ID    int    `json:"차량_ID" gorm:"primaryKey;autoIncrement"`
-// 	차량_종류    string `json:"차량_종류" gorm:"enum('A차','B차')"`
-// 	현재_적재_수량 int    `json:"현재_적재_수량"`
-// }
-
-// type 운행_기록 struct {
-// 	운행_ID    int        `json:"운행_ID" gorm:"primaryKey;autoIncrement"`
-// 	차량_ID    int        `json:"foreignKey:차량_ID"`
-// 	운행_시작_시간 *time.Time `json:"운행_시작_시간"`
-// 	운행_종료_시간 *time.Time `json:"운행_종료_시간"`
-// 	운행_상태    string     `json:"운행_상태" gorm:"enum('진행중','완료','실패')"`
-// }
-
-// type 운행_상품 struct {
-// 	운행_ID   int        `json:"운행_ID" gorm:"primaryKey;foreignKey:운행_ID"`
-// 	상품_ID   int        `json:"상품_ID" gorm:"primaryKey;foreignKey:상품_ID"`
-// 	구역_ID   string     `json:"구역_ID" gorm:"type:char(3);primaryKey"`
-// 	적재_순번   int        `json:"적재_순번"`
-// 	등록_시각   *time.Time `json:"등록_시각"`
-// 	A차운송_시각 *time.Time `json:"A차운송_시각"`
-// 	투입_시각   *time.Time `json:"투입_시각"`
-// 	B차운송_시각 *time.Time `json:"B차운송_시각"`
-// 	완료_시각   *time.Time `json:"완료_시각"`
-// }
-
-func main() {
-	dsn := getDSN()
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		panic("failed to connect database")
-	}
-
-	// err = db.AutoMigrate(&상품{}, &구역{}, &차량{}, &운행_기록{}, &운행_상품{})
-	err = db.AutoMigrate(&Product{})
-	if err != nil {
-		fmt.Printf("Database migration failed: %v\n", err)
-		panic("failed to migrate database schema")
-	} else {
-		fmt.Println("Database migration successful!")
-	}
-
-	r := gin.Default()
-	// product
-	r.POST("/data/product", func(c *gin.Context) {
-		var product Product
-		if err := c.ShouldBindJSON(&product); err != nil {
-			c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
-			return
-		}
-		result := db.Create(&product)
-		if result.Error != nil {
-			c.AbortWithStatusJSON(500, gin.H{"error": result.Error.Error()})
-			return
-		}
-		c.JSON(201, product)
-	})
-	r.GET("/data/product", func(c *gin.Context) {
-		var products []Product
-		result := db.Find(&products)
-		if result.Error != nil {
-			c.AbortWithStatusJSON(500, gin.H{"error": result.Error.Error()})
-			return
-		}
-		c.JSON(200, products)
-	})
-	// zone
-
-	fmt.Println("Server listening on :8080")
-	r.Run(":8080")
-}
-
 func getDSN() string {
-	user := lookupEnv("DB_USER", "")
-	pass := lookupEnv("DB_PASSWORD", "")
-	host := lookupEnv("DB_HOST", "")
-	port := lookupEnv("DB_PORT", "")
-	name := lookupEnv("DB_NAME", "")
-
+	user := lookupEnv("DB_USER", "root")
+	pass := lookupEnv("DB_PASSWORD", "password")
+	host := lookupEnv("DB_HOST", "127.0.0.1")
+	port := lookupEnv("DB_PORT", "3306")
+	name := lookupEnv("DB_NAME", "my_database")
 	return fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		user, pass, host, port, name)
 }
@@ -165,4 +74,84 @@ func lookupEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func initDatabase() *gorm.DB {
+	dsn := getDSN()
+	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+	if err != nil {
+		log.Fatalf("데이터베이스 연결 실패: %v", err)
+	}
+
+	err = db.AutoMigrate(
+		&Product{},
+		&Zone{},
+		&Vehicle{},
+		&OperationRecord{},
+		&OperationProduct{},
+	)
+	if err != nil {
+		log.Fatalf("데이터베이스 마이그레이션 실패: %v", err)
+	}
+	log.Println("데이터베이스 연결 및 마이그레이션 성공")
+	return db
+}
+
+func createHandler[T any](db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var item T
+		if err := c.ShouldBindJSON(&item); err != nil {
+			c.AbortWithStatusJSON(400, gin.H{"error": err.Error()})
+			return
+		}
+
+		result := db.Create(&item)
+		if result.Error != nil {
+			c.AbortWithStatusJSON(500, gin.H{"error": fmt.Sprintf("생성 실패: %v", result.Error.Error())})
+			return
+		}
+		c.JSON(201, item)
+	}
+}
+
+func getAllHandler[T any](db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var items []T
+		result := db.Find(&items)
+		if result.Error != nil {
+			c.AbortWithStatusJSON(500, gin.H{"error": fmt.Sprintf("조회 실패: %v", result.Error.Error())})
+			return
+		}
+		c.JSON(200, items)
+	}
+}
+
+func main() {
+	db := initDatabase()
+
+	router := gin.Default()
+
+	api := router.Group("/api")
+	{
+		api.POST("/products", createHandler[Product](db))
+		api.GET("/products", getAllHandler[Product](db))
+
+		api.POST("/zones", createHandler[Zone](db))
+		api.GET("/zones", getAllHandler[Zone](db))
+
+		api.POST("/vehicles", createHandler[Vehicle](db))
+		api.GET("/vehicles", getAllHandler[Vehicle](db))
+
+		api.POST("/operation_records", createHandler[OperationRecord](db))
+		api.GET("/operation_records", getAllHandler[OperationRecord](db))
+
+		api.POST("/operation_products", createHandler[OperationProduct](db))
+		api.GET("/operation_products", getAllHandler[OperationProduct](db))
+	}
+
+	port := ":8080"
+	log.Printf("서버가 %s 포트에서 실행 중...", port)
+	if err := router.Run(port); err != nil {
+		log.Fatalf("서버 실행 실패: %v", err)
+	}
 }
