@@ -7,6 +7,7 @@
 #define ADDRESS     "tcp://broker.hivemq.com:1883"  // 공용 MQTT 브로커 예시 (변경 가능)
 #define CLIENTID    "RaspberryPi_A"
 #define TOPIC_COUNT       "storage/count"
+#define TOPIC_A_START      "storage/start"      // 출발 알림용 새 토픽
 #define TOPIC_A_STARTDEST      "storage/startdest"  // 목적지 출발 알림
 #define TOPIC_A_ARRIVED   "storage/arrived" // 목적지 도착 알림
 #define QOS         1
@@ -71,8 +72,25 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     // 목적지 출발 메시지 처리
     if (strcmp(topicName, TOPIC_A_STARTDEST) == 0) {
         printf("[COMMAND RECEIVED] %s\n", msg);
-        count = 1;
 
+        //출발 메시지 전송(출발한다)
+        char startMsg[100];
+        snprintf(startMsg, sizeof(startMsg), "출발: %s", msg);
+       
+        MQTTClient_message pubmsg = MQTTClient_message_initializer;
+        pubmsg.payload = startMsg;
+        pubmsg.payloadlen = (int)strlen(startMsg);
+        pubmsg.qos = QOS;
+        pubmsg.retained = 0;
+
+        //MQTTClient_deliveryToken token;
+        int rc = MQTTClient_publishMessage(client, TOPIC_A_START, &pubmsg, &token);
+        if (rc != MQTTCLIENT_SUCCESS) {
+            printf("Failed to publish start message, rc=%d\n", rc);
+        } else {
+            printf("[PUBLISH] %s → %s\n", startMsg, TOPIC_A_START);
+        }
+        count = 1;
         delay(3000); // 1초 대기 후 목적지 도착 메시지 발송
         send_arrived();
     }
