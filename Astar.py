@@ -50,6 +50,7 @@ def print_grid(grid, posA, posB):
 
 # 시뮬레이션
 def simulate_A_B(grid, goalsA, goalsB, coords):
+    import time
     posA = coords['A']
     posB = coords['B']
     idxAgoal = 0
@@ -64,28 +65,28 @@ def simulate_A_B(grid, goalsA, goalsB, coords):
         coords['W']: [(8,6)],
     }
 
+    block_for_B = set()
+    A_is_blocking = False
+
     while idxAgoal < len(goalsA) or idxBgoal < len(goalsB):
-        # 목표 도달 시 경로 재계산
+        # A 목표 경로 갱신
         if len(pathA) <= 1 and idxAgoal < len(goalsA):
             dest = coords[goalsA[idxAgoal]]
             seg = astar(grid, posA, dest)
             if seg: pathA = seg
             idxAgoal += 1
-        if len(pathB) <= 1 and idxBgoal < len(goalsB):
-            dest = coords[goalsB[idxBgoal]]
-            seg = astar(grid, posB, dest)
-            if seg: pathB = seg
-            idxBgoal += 1
 
-        # 예측 범위
+        # 미래 예측
         PREDICT_RANGE = 3
-        futureB = pathB[1:1 + PREDICT_RANGE]
+        futureB_move = pathB[1:1 + PREDICT_RANGE]
 
-        # 출구 예측 포함
+        futureB_static = []
         if idxBgoal > 0:
             last_goal = coords[goalsB[idxBgoal - 1]]
             if last_goal in exit_zone_map:
-                futureB += exit_zone_map[last_goal]
+                futureB_static = exit_zone_map[last_goal]
+
+        futureB = futureB_move + futureB_static
 
         nextA = pathA[1] if len(pathA) > 1 else posA
         nextB = pathB[1] if len(pathB) > 1 else posB
@@ -93,32 +94,58 @@ def simulate_A_B(grid, goalsA, goalsB, coords):
         moveA = True
         moveB = True
 
-        # 충돌 조건 판단
+        # 충돌 판단
         if nextA == nextB:
             moveA = False
         elif nextA == posB and nextB == posA:
             moveA = False
-        elif nextA in futureB:
+        elif nextA in futureB_move:
             moveA = False
-        elif posA in futureB:
+        elif nextA in futureB_static:
+            dA = abs(nextA[0] - posA[0]) + abs(nextA[1] - posA[1])
+            dB = abs(nextA[0] - posB[0]) + abs(nextA[1] - posB[1])
+            if dB <= dA:
+                moveA = False
+        elif posA in futureB_move:
             moveA = False
 
-        # 대기 위험 판단 → 우회 시도 or 후퇴
+        # A가 대기 상태일 때 → 우회 또는 후퇴
         if not moveA:
+            block_for_B.add(posA)
+            A_is_blocking = True
             if posA in futureB:
-                # 위험한 대기 → 우회 시도
                 dest = coords[goalsA[idxAgoal - 1]]
                 alt = astar(grid, posA, dest)
                 if alt and alt[1] not in futureB:
                     pathA = alt
                     moveA = True
                 else:
-                    # 우회 실패 → 후퇴
                     if posA in pathA:
                         idx = pathA.index(posA)
                         safe_idx = max(0, idx - 1)
                         posA = pathA[safe_idx]
                         pathA = [posA] + pathA[safe_idx+1:]
+        else:
+            block_for_B.discard(posA)
+            A_is_blocking = False
+
+        # B 경로 재탐색 조건
+        need_replan_B = False
+        if len(pathB) <= 1 and idxBgoal < len(goalsB):
+            need_replan_B = True
+        elif A_is_blocking:
+            need_replan_B = True
+
+        if need_replan_B:
+            dest = coords[goalsB[idxBgoal]]
+            temp_grid = [row[:] for row in grid]
+            for r, c in block_for_B:
+                if temp_grid[r][c] == 0:
+                    temp_grid[r][c] = 1
+            seg = astar(temp_grid, posB, dest)
+            if seg: pathB = seg
+            if len(pathB) <= 1:
+                idxBgoal += 1
 
         # 이동
         if moveA and len(pathA) > 1:
@@ -148,7 +175,7 @@ if __name__ == '__main__':
     ]
 
     coords = {v:(i,j) for i,row in enumerate(grid) for j,v in enumerate(row) if isinstance(v,str)}
-    goalsA = ['S', 'G', 'K','W','A']
-    goalsB = ['G', 'B', 'S','B','W','B','K','B']
+    goalsA = ['K', 'G', 'S','W','A']
+    goalsB = ['W', 'B', 'S','B','G','B','K','B']
 
     simulate_A_B(grid, goalsA, goalsB, coords)
