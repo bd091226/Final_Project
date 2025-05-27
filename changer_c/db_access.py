@@ -125,8 +125,6 @@ def transfer_stock_zone_to_vehicle(conn, cursor, zone_id='02', vehicle_id=2):
     except Exception as e:
         print(f"❌ B차 도착 처리 중 오류: {e}")
 
-
-        
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
 def button_A(cursor, conn, count, 운행_ID=None):
     try:
