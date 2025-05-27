@@ -1,19 +1,16 @@
-
-
 import heapq
 import time
 
 # A* 경로 탐색
 def astar(grid, start, goal):
     rows, cols = len(grid), len(grid[0])
-    def h(a, b):
-        return abs(a[0] - b[0]) + abs(a[1] - b[1])
-    
+    def h(a, b): return abs(a[0] - b[0]) + abs(a[1] - b[1])
+
     open_set = []
     heapq.heappush(open_set, (h(start, goal), 0, start))
     came_from = {}
     g_score = {start: 0}
-    
+
     while open_set:
         f, g, current = heapq.heappop(open_set)
         if current == goal:
@@ -23,7 +20,7 @@ def astar(grid, start, goal):
                 current = came_from[current]
             path.append(start)
             return path[::-1]
-        
+
         for d in [(1,0),(-1,0),(0,1),(0,-1)]:
             nr, nc = current[0]+d[0], current[1]+d[1]
             if 0 <= nr < rows and 0 <= nc < cols and (grid[nr][nc] == 0 or isinstance(grid[nr][nc], str)):
@@ -41,57 +38,98 @@ def print_grid(grid, posA, posB):
     output = [row[:] for row in grid]
     if posA == posB:
         r, c = posA
-        output[r][c] = 'X'  # 충돌 표시
+        output[r][c] = 'X'
     else:
         rA, cA = posA
         rB, cB = posB
         if output[rA][cA] not in ('S','W','K','G','B'): output[rA][cA] = 'A'
         if output[rB][cB] not in ('S','W','K','G','A'): output[rB][cB] = 'B'
-
     for row in output:
         print(' '.join(str(x) for x in row))
     print()
 
-# 시뮬레이션 (인덱스 기반 충돌 대기 로직 추가)
-def simulate_A_B(grid, pathA, pathB):
-    idxA, idxB = 0, 0
-    posA = pathA[0]
-    posB = pathB[0]
+# 시뮬레이션
+def simulate_A_B(grid, goalsA, goalsB, coords):
+    posA = coords['A']
+    posB = coords['B']
+    idxAgoal = 0
+    idxBgoal = 0
+    pathA, pathB = [posA], [posB]
     t = 0
 
-    while idxA < len(pathA) - 1 or idxB < len(pathB) - 1:
-        # 다음에 가려고 하는 위치
-        nextA = pathA[idxA+1] if idxA < len(pathA) - 1 else posA
-        nextB = pathB[idxB+1] if idxB < len(pathB) - 1 else posB
+    exit_zone_map = {
+        coords['G']: [(4,6)],
+        coords['S']: [(4,2)],
+        coords['K']: [(8,2)],
+        coords['W']: [(8,6)],
+    }
 
-        # 충돌 검사: 두 캐릭터가 같은 칸으로 가려 하면
+    while idxAgoal < len(goalsA) or idxBgoal < len(goalsB):
+        # 목표 도달 시 경로 재계산
+        if len(pathA) <= 1 and idxAgoal < len(goalsA):
+            dest = coords[goalsA[idxAgoal]]
+            seg = astar(grid, posA, dest)
+            if seg: pathA = seg
+            idxAgoal += 1
+        if len(pathB) <= 1 and idxBgoal < len(goalsB):
+            dest = coords[goalsB[idxBgoal]]
+            seg = astar(grid, posB, dest)
+            if seg: pathB = seg
+            idxBgoal += 1
+
+        # 예측 범위
+        PREDICT_RANGE = 3
+        futureB = pathB[1:1 + PREDICT_RANGE]
+
+        # 출구 예측 포함
+        if idxBgoal > 0:
+            last_goal = coords[goalsB[idxBgoal - 1]]
+            if last_goal in exit_zone_map:
+                futureB += exit_zone_map[last_goal]
+
+        nextA = pathA[1] if len(pathA) > 1 else posA
+        nextB = pathB[1] if len(pathB) > 1 else posB
+
+        moveA = True
+        moveB = True
+
+        # 충돌 조건 판단
         if nextA == nextB:
-            # A만 먼저 이동, B는 대기
-            posA = nextA
-            idxA += 1
-            # B는 idxB, posB 변경 없음
-        else:
-            # 충돌 없으면 둘 다 이동
-            if idxA < len(pathA) - 1:
-                posA = nextA
-                idxA += 1
-            if idxB < len(pathB) - 1:
-                posB = nextB
-                idxB += 1
+            moveA = False
+        elif nextA == posB and nextB == posA:
+            moveA = False
+        elif nextA in futureB:
+            moveA = False
+        elif posA in futureB:
+            moveA = False
 
-        # 지나간 자리 복원
-        if t > 0:
-            prevA = pathA[idxA-1]
-            if prevA != posA and isinstance(grid[prevA[0]][prevA[1]], int):
-                grid[prevA[0]][prevA[1]] = 0
-            prevB = pathB[idxB-1]
-            if prevB != posB and isinstance(grid[prevB[0]][prevB[1]], int):
-                grid[prevB[0]][prevB[1]] = 0
+        # 대기 위험 판단 → 우회 시도 or 후퇴
+        if not moveA:
+            if posA in futureB:
+                # 위험한 대기 → 우회 시도
+                dest = coords[goalsA[idxAgoal - 1]]
+                alt = astar(grid, posA, dest)
+                if alt and alt[1] not in futureB:
+                    pathA = alt
+                    moveA = True
+                else:
+                    # 우회 실패 → 후퇴
+                    if posA in pathA:
+                        idx = pathA.index(posA)
+                        safe_idx = max(0, idx - 1)
+                        posA = pathA[safe_idx]
+                        pathA = [posA] + pathA[safe_idx+1:]
 
-        # 출력
+        # 이동
+        if moveA and len(pathA) > 1:
+            posA = pathA[1]
+            pathA = pathA[1:]
+        if moveB and len(pathB) > 1:
+            posB = pathB[1]
+            pathB = pathB[1:]
+
         print(f"--- t={t} ---")
         print_grid(grid, posA, posB)
-
         t += 1
         time.sleep(0.5)
 
@@ -109,37 +147,8 @@ if __name__ == '__main__':
         [0,0,0,0,0,0,0,0,'A'],
     ]
 
-    # 좌표 매핑
     coords = {v:(i,j) for i,row in enumerate(grid) for j,v in enumerate(row) if isinstance(v,str)}
-    startA = coords['A']
-    startB = coords['B']
-
-# A -> S -> W -> K -> G ->  A
-# B -> G -> B -> S -> B -> W -> B -> K -> B
-    goalsA = ['S', 'W', 'K','G','A']
+    goalsA = ['S', 'G', 'K','W','A']
     goalsB = ['G', 'B', 'S','B','W','B','K','B']
 
-    # A 전체 경로
-    fullA = []
-    curr = startA
-    for dest in goalsA:
-        seg = astar(grid, curr, coords[dest])
-        if seg is None:
-            print(f"A 경로 없음: {curr} → {coords[dest]}")
-            exit()
-        fullA += seg[1:] if fullA else seg
-        curr = coords[dest]
-
-    # **B 경로: 원래 grid 그대로 사용**
-    fullB = []
-    curr = startB
-    for dest in goalsB:
-        seg = astar(grid, curr, coords[dest])
-        if seg is None:
-            print(f"B 경로 없음: {curr} → {coords[dest]}")
-            exit()
-        fullB += seg[1:] if fullB else seg
-        curr = coords[dest]
-
-    # 시뮬레이션 시작
-    simulate_A_B(grid, fullA, fullB)
+    simulate_A_B(grid, goalsA, goalsB, coords)
