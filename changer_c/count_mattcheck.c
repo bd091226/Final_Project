@@ -85,12 +85,18 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     // 수신한 토픽이 storage/count일 경우
     if (strcmp(topicName, TOPIC_COUNT) == 0) {
         int count = atoi(msgPayload);
-        char cmd[256];
+        char cmd[512];
         snprintf(cmd, sizeof(cmd),
-            "PYTHONPATH=/home/pi/FinalProject/Final_Project-1/changer_c "
-            "python3 -c \"from db_access import run_button_A; run_button_A(%d)\"",
-            count);
-
+            "python3 - << 'EOF'\n"
+            "from db_access import get_connection, button_A\n"
+            "conn = get_connection()\n"
+            "cur = conn.cursor()\n"
+            "button_A(cur, conn, %d, %d)\n"
+            "conn.close()\n"
+            "EOF",
+            count,
+            1001   // 기존 운행_ID
+        );
         int ret = system(cmd);
         if (ret == -1) {
             fprintf(stderr, "❌ Python button_A 실행 실패\n");

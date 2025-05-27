@@ -46,11 +46,21 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     msg[message->payloadlen] = '\0';
 
     printf("[수신] 토픽: %s, 메시지: %s\n", topicName, msg);
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),"python3 -c \"from db_access import mark_arrival; mark_arrival('%s')\"",msg);
-    FILE *fp = popen(cmd, "r");
-    if (fp) pclose(fp);
-    else fprintf(stderr, "Failed to call mark_arrival for zone %s\n", msg);
+    char cmd2[512];
+    snprintf(cmd2, sizeof(cmd2),
+        "python3 - << 'EOF'\n"
+        "from db_access import get_connection, transfer_stock_zone_to_vehicle\n"
+        "conn = get_connection()\n"
+        "cur = conn.cursor()\n"
+        "transfer_stock_zone_to_vehicle(conn, cur, '%s', 2)\n"
+        "conn.close()\n"
+        "EOF",
+        msg);
+    if (system(cmd2) != 0) {
+        fprintf(stderr, "❌ transfer_stock_zone_to_vehicle() 실행 실패 (zone=%s)\n", msg);
+    } else {
+        printf("✅ transfer_stock_zone_to_vehicle() 실행 완료\n");
+    }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
     return 1;
