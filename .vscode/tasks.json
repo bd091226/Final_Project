@@ -10,6 +10,7 @@
                 "${file}",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
+                "-lgpiod",
                 "-lpaho-mqtt3c"
             ],
             "options": {

@@ -1,9 +1,10 @@
 DB_CONFIG = {
     "user": "user",
-    "password": "kosta-final-250519",
-    "host": "13.125.155.221",
+    "password": "Kosta_Final_250519",
+    "host": "127.0.0.1",
+    "port": 3307,  # SSH 포워딩한 포트
     "database": "Final_Project",
-    "charset": "utf8mb4",
+    "charset": "utf8mb4"
 }
 
 BROKER        = "broker.hivemq.com"
