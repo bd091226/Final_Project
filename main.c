@@ -7,6 +7,7 @@
 
 #define ADDRESS     "tcp://broker.hivemq.com:1883"  // 공용 MQTT 브로커 예시 (변경 가능)
 #define CLIENTID    "RaspberryPi_A"
+#define TOPIC_QR    "storage/gr"// QR 전달용
 #define TOPIC_COUNT       "storage/count"
 #define TOPIC_A_START      "storage/start"      // 출발 알림용 새 토픽 // "출발했습니다."
 #define TOPIC_A_STARTDEST      "storage/startdest"  // 목적지 출발 알림 
@@ -18,6 +19,54 @@
 
 MQTTClient client;
 int count = 1; //버튼을 누른 횟수
+
+void QR_read()
+{
+    FILE *fp;
+    char result[128];
+    fp = popen("python3 /home/pi/FinalProject/A_camera_final.py", "r");  // 파일 경로에 맞게 수정
+
+    if (fp == NULL) {
+        printf("Failed to run Python script\n");
+        return;
+    }
+
+    // 전체 출력 한 번에 받기
+    if (fgets(result, sizeof(result), fp) != NULL) {
+        result[strcspn(result, "\r\n")] = '\0';  // 첫 줄 개행 제거
+        char *newline = strchr(result, '\n');   // 줄바꿈 문자 찾기 (이건 fgets에서는 잘 안 씀)
+
+        // 줄바꿈으로 분리
+        char *zone = strtok(result, "\n");
+        char *product = strtok(NULL, "\n");
+
+        if (zone && product) {
+            // zone_id 발행
+            MQTTClient_message pub1 = MQTTClient_message_initializer;
+            pub1.payload = zone;
+            pub1.payloadlen = strlen(zone);
+            pub1.qos = QOS;
+            pub1.retained = 0;
+            MQTTClient_deliveryToken token1;
+            MQTTClient_publishMessage(client, TOPIC_QR, &pub1, &token1);
+            printf("[PUBLISH] zone_id: %s → %s\n", zone, TOPIC_QR);
+
+            // product_id 발행
+            MQTTClient_message pub2 = MQTTClient_message_initializer;
+            pub2.payload = product;
+            pub2.payloadlen = strlen(product);
+            pub2.qos = QOS;
+            pub2.retained = 0;
+            MQTTClient_deliveryToken token2;
+            MQTTClient_publishMessage(client, "storage/product", &pub2, &token2);
+            printf("[PUBLISH] product_id: %s → storage/product\n", product);
+        } else {
+            printf("Invalid QR format. Expected two lines.\n");
+        }
+    }
+
+    pclose(fp);
+}
 
 
 void send_arrived() {
@@ -133,6 +182,8 @@ int main() {
     }
 
     printf("MQTT connected. Waiting for button press...\n");
+
+    QR_read();
     // 목적지 출발 토픽 구독
     MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
 
