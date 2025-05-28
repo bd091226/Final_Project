@@ -8,9 +8,10 @@
 #define CHIP_NAME "gpiochip0"
 #define SENSOR_COUNT 4
 
-const int TRIG_PINS[SENSOR_COUNT] = {23, 5, 27, 17};
-const int ECHO_PINS[SENSOR_COUNT] = {24, 6, 22, 4};
-const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26};
+// physical 번호 1 ~ 40
+const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};   // 11,13,16,29
+const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // 7,16,18,31
+const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26}; // 32,33,35,37
 
 long get_microseconds()
 {
