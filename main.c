@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <wiringPi.h>
 #include <MQTTClient.h>
 #include <unistd.h>
@@ -15,10 +16,19 @@
 #define QOS         0
 #define TIMEOUT     10000L
 
-#define BUTTON_PIN  0  // wiringPi 핀번호 (예: GPIO17)
+#define MOTOR_IN1 22   // L298N IN1
+#define MOTOR_IN2 27   // L298N IN2
+#define BUTTON_PIN 17  // 버튼 입력
+
+volatile sig_atomic_t keepRunning = 1;
+// SIGINT(Ctrl+C) 핸들러
 
 MQTTClient client;
 int count = 1; //버튼을 누른 횟수
+
+void intHandler(int dummy) {
+    keepRunning = 0;
+}
 
 void QR_read()
 {
@@ -165,15 +175,21 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 int main() {
     int rc;
 
-    wiringPiSetup();
+    signal(SIGINT, intHandler);
+    wiringPiSetupGpio();
+
+    pinMode(MOTOR_IN1, OUTPUT);
+    pinMode(MOTOR_IN2, OUTPUT);
     pinMode(BUTTON_PIN, INPUT);
     pullUpDnControl(BUTTON_PIN, PUD_UP);  // 풀업저항 설정
 
-    // MQTT 클라이언트 생성·연결
-    MQTTClient_create(&client, ADDRESS, CLIENTID,
-                      MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+    // 모터 정지 상태로 시작
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, LOW);
 
+    // MQTT 클라이언트 생성·연결
+    MQTTClient_create(&client, ADDRESS, CLIENTID,MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, NULL);
 
     if ((rc = MQTTClient_connect(client, &conn_opts)) != MQTTCLIENT_SUCCESS) {
@@ -183,23 +199,40 @@ int main() {
 
     printf("MQTT connected. Waiting for button press...\n");
 
-    QR_read();
+    //QR_read();
     // 목적지 출발 토픽 구독
     MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
 
     int lastButtonState = HIGH;
+    
+
     while (1) {
         int buttonState = digitalRead(BUTTON_PIN);
+        printf("Button state: %d\n", buttonState);  // HIGH:1, LOW:0 출력
+        
+
+        // 모터 제어: 누르고 있으면 전진, 아니면 정지
+        if (buttonState == LOW) {
+            digitalWrite(MOTOR_IN1, HIGH);
+            digitalWrite(MOTOR_IN2, LOW);
+        } else {
+            digitalWrite(MOTOR_IN1, LOW);
+            digitalWrite(MOTOR_IN2, LOW);
+        }
+
+        // 눌림 엣지 감지 시 count 발송
         if (lastButtonState == HIGH && buttonState == LOW) {
-            // 버튼 눌림 감지
-            printf("Button pressed! Sending count: %d\n", count);
             send_count();
             count++;
         }
         lastButtonState = buttonState;
-        delay(100); // 100ms 딜레이 (디바운싱)
+
+        delay(100);  // 100ms 디바운싱
     }
 
+
+    digitalWrite(MOTOR_IN1, LOW);
+    digitalWrite(MOTOR_IN2, LOW);
     MQTTClient_disconnect(client, 10000);
     MQTTClient_destroy(&client);
 
