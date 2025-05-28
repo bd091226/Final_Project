@@ -10,8 +10,8 @@
 
 // physical 번호 1 ~ 40
 const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};   // 11,13,16,29
-const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // 7,16,18,31
-const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26}; // 32,33,35,37
+const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // 7,15,18,31
+const int SERVO_PINS[SENSOR_COUNT] = {16, 20, 21, 26}; // 36,38,40,37
 
 long get_microseconds()
 {
