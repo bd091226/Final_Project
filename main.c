@@ -1,3 +1,4 @@
+//main.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +35,7 @@ void QR_read()
 {
     FILE *fp;
     char result[128];
-    fp = popen("python3 /home/pi/FinalProject/A_camera_final.py", "r");  // 파일 경로에 맞게 수정
+    fp = popen("python3 /home/pi/Final_Project/A_camera_final.py", "r");  // 파일 경로에 맞게 수정
 
     if (fp == NULL) {
         printf("Failed to run Python script\n");
@@ -199,7 +200,7 @@ int main() {
 
     printf("MQTT connected. Waiting for button press...\n");
 
-    //QR_read();
+    QR_read();
     // 목적지 출발 토픽 구독
     MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
 
@@ -208,7 +209,7 @@ int main() {
 
     while (1) {
         int buttonState = digitalRead(BUTTON_PIN);
-        printf("Button state: %d\n", buttonState);  // HIGH:1, LOW:0 출력
+        //printf("Button state: %d\n", buttonState);  // HIGH:1, LOW:0 출력
         
 
         // 모터 제어: 누르고 있으면 전진, 아니면 정지
