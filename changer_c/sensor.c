@@ -1,17 +1,18 @@
 #define _GNU_SOURCE
-
+#include "sensor.h"
 #include <gpiod.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
+#include <stdlib.h>
+#include <math.h>
 
 #define CHIP_NAME "gpiochip0"
 #define SENSOR_COUNT 4
 
-// physical 번호 1 ~ 40
-const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};   // 11,13,16,29
-const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // 7,15,18,31
-const int SERVO_PINS[SENSOR_COUNT] = {16, 20, 21, 26}; // 36,38,40,37
+const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};
+const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};
+const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26};
 
 long get_microseconds()
 {
@@ -49,60 +50,35 @@ float measure_distance(struct gpiod_chip *chip, int trig_pin, int echo_pin)
     return duration / 58.0f;
 }
 
-void move_servo(struct gpiod_chip *chip, int servo_pin, int angle)
-{
-    struct gpiod_line *servo = gpiod_chip_get_line(chip, servo_pin);
-    gpiod_line_request_output(servo, "servo", 0);
-
-    int pulseWidth = 500 + angle * 11;
-    int cycles = 20;
-
-    for (int i = 0; i < cycles; i++)
-    {
-        gpiod_line_set_value(servo, 1);
-        usleep(pulseWidth);
-        gpiod_line_set_value(servo, 0);
-        usleep(20000 - pulseWidth);
-    }
-
-    gpiod_line_release(servo);
-    printf("[서보 %d] 각도: %d°\n", servo_pin, angle);
-}
-
-int main()
+int run_sensor_sequence()
 {
     struct gpiod_chip *chip = gpiod_chip_open_by_name(CHIP_NAME);
     if (!chip)
     {
         perror("gpiod_chip_open_by_name 실패");
-        return 1;
+        return 0;
     }
 
-    while (1)
+    float previous_distances[SENSOR_COUNT] = {0};
+    int triggered = 0;
+
+    for (int i = 0; i < SENSOR_COUNT; i++)
     {
-        for (int i = 0; i < SENSOR_COUNT; i++)
+        float dist = measure_distance(chip, TRIG_PINS[i], ECHO_PINS[i]);
+        printf("센서 %d 거리: %.2f cm → ", i + 1, dist);
+
+        float diff = fabs(dist - previous_distances[i]);
+        previous_distances[i] = dist;
+
+        if (dist <= 15.0 && diff >= 5.0)
         {
-            float dist = measure_distance(chip, TRIG_PINS[i], ECHO_PINS[i]);
-            printf("센서 %d 거리: %.2f cm → ", i + 1, dist);
-
-            if (dist < 5.0)
-            {
-                printf("서보 %d ON\n", i + 1);
-                move_servo(chip, SERVO_PINS[i], 90);
-            }
-            else
-            {
-                printf("서보 %d OFF\n", i + 1);
-                move_servo(chip, SERVO_PINS[i], 0);
-            }
-
-            usleep(50000); // 간섭 방지
+            triggered = 1; // 조건 충족
         }
-
-        printf("---------------\n");
-        sleep(1);
+        else
+            usleep(200000);
     }
 
+    printf("---------------\n");
     gpiod_chip_close(chip);
-    return 0;
+    return triggered;
 }
