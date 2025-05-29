@@ -3,6 +3,7 @@
 #include <string.h>
 #include <MQTTClient.h>
 #include <unistd.h>
+#include <sensor.h>
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "RaspberryPi_Container"      // 다른 클라이언트 ID 사용 권장
@@ -141,7 +142,9 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             // 여기서 알림, 로직 처리 등 원하는 동작 수행
 
             // sensor.c 초음파 센서로 물건이 들어왔다면 DB 수행
-            if (run_sensor_sequence())
+            float prev_distance = 0;
+            if (move_distance(chip, 0, &prev_distance)) // 수정필요!! 02(0)의 초음파센서를 돌아가게 하는걸로 임시로 해놓음
+                                                        // 나중엔 해당 구역번호를 받아서 해당 센서만 동작해야함!!
             {
                 // zone_arrival_A(conn, cursor, vehicle_id=1, zone_id)
                 // zone_id를 msgPayload나 다른 로직으로 결정해야 합니다.
