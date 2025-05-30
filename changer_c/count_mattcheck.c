@@ -136,7 +136,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     // 수신한 토픽이 storage/arrived일 경우
     if (strcmp(topicName, TOPIC_A_ARRIVED) == 0)
     {
-        if (strcmp(msgPayload, "목적지 도착") == 0)
+        if (strcmp(msgPayload, "A차 목적지 도착") == 0) // 현재 적재 수량이 0이면 다시 집으로 돌아가는 기능 추가
         {
             printf("✅ A차가 목적지에 도착했습니다. 필요한 동작을 수행하세요.\n");
             // 여기서 알림, 로직 처리 등 원하는 동작 수행
