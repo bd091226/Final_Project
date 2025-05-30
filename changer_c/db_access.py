@@ -93,6 +93,20 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
         return 운행_ID
 
+# A차 차량_ID의 현재_적재_수량을 반환하는 함수
+def get_A_count(cursor, 차량_ID='A-1000'):
+    try:
+        cursor.execute("""
+            SELECT 현재_적재_수량
+            FROM A차
+            WHERE 차량_ID = %s
+        """, (차량_ID,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+    except Exception as e:
+        print(f"❌ 적재 수량 조회 실패 (차량 {차량_ID}): {e}")
+        return None
+    
 # A차 A에서 출발했다는 신호를 수신 시
 # 수정해야함!!
 def departed_A(conn, cursor, 차량_ID='A-1000'):
