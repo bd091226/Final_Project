@@ -19,7 +19,27 @@
           "ignoreFailures": true
         }
       ],
-      "preLaunchTask": "build count_mattcheck"
+      "preLaunchTask": "build combined"
+    },
+    {
+      "name": "Run combined",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/home/pi/Final_Project/changer_c/combined_mqtt",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "/home/pi/Final_Project/changer_c",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "build combinded"
     },
     {
       "name": "C/C++ Runner: Debug Session",

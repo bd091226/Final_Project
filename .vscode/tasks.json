@@ -20,6 +20,27 @@
             ]
         },
         {
+            "label": "Run combined",
+            "type": "shell",
+            "command": "gcc",
+            "args": [
+                "-g",
+                "/home/pi/Final_Project/changer_c/combined_mqtt.c",
+                "/home/pi/Final_Project/changer_c/count_mattcheck.c",
+                "/home/pi/Final_Project/changer_c/sensor.c",
+                "/home/pi/Final_Project/changer_c/Bcar_C.c",
+                "-o",
+                "/home/pi/Final_Project/changer_c/combined_mqtt",
+                "-lgpiod",
+                "-lpaho-mqtt3c",
+                "-lMQTTClient"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
+        },
+        {
             "type": "cppbuild",
             "label": "C/C++: gcc 활성 파일 빌드",
             "command": "/usr/bin/gcc",
