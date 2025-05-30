@@ -1,0 +1,23 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build main",
+            "type": "shell",
+            "command": "gcc",
+            "args": [
+                "-g",
+                "/home/pi/FinalProject/main.c",
+                "-o",
+                "/home/pi/FinalProject/main",
+                "-lgpiod",
+                "-lpaho-mqtt3c"
+            ],
+            "group": "build",
+            "problemMatcher": [
+
+                "$gcc"
+            ]
+        }
+    ]
+}

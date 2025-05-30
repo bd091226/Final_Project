@@ -1,0 +1,26 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run main",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "/home/pi/FinalProject/main",
+      "args": [],
+      "stopAtEntry": false,
+      "cwd": "/home/pi/FinalProject",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "setupCommands": [
+        {
+          "description": "Enable pretty-printing for gdb",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ],
+      "preLaunchTask": "build main",
+      "miDebuggerPath": "/usr/bin/gdb"
+    }
+  ]
+}

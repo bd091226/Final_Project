@@ -19,7 +19,7 @@
 
 #define GPIO_CHIP   "/dev/gpiochip0"
 #define GPIO_LINE1  26 // 빨강
-#define GPIO_LINE2  6 // 하양
+#define GPIO_LINE2  19 // 하양
 #define GPIO_LINE3  16 // 초록
 
 #define MOTOR_IN1 22   // L298N IN1
@@ -87,6 +87,7 @@ void intHandler(int dummy) {
 
 void send_arrived() {
     const char* msg = "목적지 도착";
+    gpiod_line_set_value(line2, 0);
 
     MQTTClient_message pubmsg = MQTTClient_message_initializer;
     pubmsg.payload = (void*)msg;
@@ -147,8 +148,15 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         // 출발 메시지 전송(출발한다)
         gpiod_line_set_value(line1, 1);
         sleep(2);
+        gpiod_line_set_value(line1, 0);
+        sleep(1);
+        gpiod_line_set_value(line2, 1);
+        sleep(5);
+
         char startMsg[100];
         snprintf(startMsg, sizeof(startMsg), "%s로 출발했음", msg);
+        gpiod_line_set_value(line2, 0);
+        
 
         MQTTClient_message pubmsg = MQTTClient_message_initializer;
         pubmsg.payload = startMsg;
@@ -182,7 +190,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
 int main() {
     struct gpiod_chip  *chip;
-    struct gpiod_servo  *line_m1, *line_m2, *line_btn;
+    struct gpiod_line  *line_m1, *line_m2, *line_btn;
     int rc,btn_value, last_btn_value;
     int ret;
 
@@ -252,7 +260,7 @@ int main() {
 
     printf("MQTT connected. Waiting for button press...\n");
 
-    QR_read();
+    //QR_read();
     // 목적지 출발 토픽 구독
     MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
 
@@ -262,6 +270,7 @@ int main() {
     while (keepRunning) {
         // 버튼 상태 읽기 (LOW: 눌림, HIGH: 풀업)
         btn_value = gpiod_line_get_value(line_btn);
+
 
         // 모터 제어: 버튼 누르고 있으면 전진
         if (btn_value == 0) {
