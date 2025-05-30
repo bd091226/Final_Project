@@ -281,7 +281,7 @@ def departed_B(conn, cursor, 차량_ID=2):
         print(f"❌ B차 운행 상태 변경 실패: {e}")
 
 # B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
-def transfer_stock_zone_to_vehicle(conn, cursor, 구역_ID='02', 차량_ID=2):
+def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID=2):
     try:
         # 1. 구역의 현재 수량 가져오기
         cursor.execute(

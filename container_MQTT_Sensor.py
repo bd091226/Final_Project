@@ -12,7 +12,7 @@ from container_config import (
     TOPIC_ARRIVAL
 )
 
-from container_DB import button_A, zone_arrival_A, transfer_stock_zone_to_vehicle, departed_A, departed_B
+from container_DB import button_A, zone_arrival_A, zone_arrival_B, departed_A, departed_B
 from DB_publisher import A_current_dest
 # --- 핀 설정 ---
 TRIG_PIN = 23
@@ -118,7 +118,7 @@ def on_message(client, userdata, msg):
             move_servo(pwm, 90)
             time.sleep(0.5)
             move_servo(pwm, 0)
-            transfer_stock_zone_to_vehicle(conn, cursor)
+            zone_arrival_B(conn, cursor)
 
 # --- 센서 루프 ---
 def run_sensor_loop(mqtt_client, conn, cursor):

@@ -7,7 +7,7 @@
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장
-#define TOPIC_B_START "storage/b_startdest"
+#define TOPIC_B_destination "storage/B_destinationdest"
 #define TOPIC_B_ARRIVED "storage/b_arrived"
 #define QOS 1
 #define TIMEOUT 10000L
@@ -15,12 +15,12 @@
 MQTTClient client;
 
 // db_access.py에서 목적지 구역 ID를 가져오는 함수
-char *B_start()
+char *B_destination()
 {
     static char result[64];
     FILE *fp = popen("python3 -c \""
-                     "from db_access import B_start; "
-                     "zone = B_start(); "
+                     "from db_access import B_destination; "
+                     "zone = B_destination(); "
                      "print(zone if zone else '')"
                      "\"",
                      "r");
@@ -58,20 +58,20 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     char cmd2[512];
     snprintf(cmd2, sizeof(cmd2),
              "python3 - << 'EOF'\n"
-             "from db_access import get_connection, transfer_stock_zone_to_vehicle\n"
+             "from db_access import get_connection, zone_arrival_B\n"
              "conn = get_connection()\n"
              "cur = conn.cursor()\n"
-             "transfer_stock_zone_to_vehicle(conn, cur, '%s', 2)\n"
+             "zone_arrival_B(conn, cur, '%s', 2)\n"
              "conn.close()\n"
              "EOF",
              msg);
     if (system(cmd2) != 0)
     {
-        fprintf(stderr, "❌ transfer_stock_zone_to_vehicle() 실행 실패 (zone=%s)\n", msg);
+        fprintf(stderr, "❌ zone_arrival_B() 실행 실패 (zone=%s)\n", msg);
     }
     else
     {
-        printf("✅ transfer_stock_zone_to_vehicle() 실행 완료\n");
+        printf("✅ zone_arrival_B() 실행 완료\n");
     }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -95,12 +95,12 @@ void publish_zone(const char *구역_ID)
 
     MQTTClient_deliveryToken token;
     // MQTTClient_publishMessage : MQTT 메시지를 발행하는 함수
-    int rc = MQTTClient_publishMessage(client, TOPIC_B_START, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_B_destination, &pubmsg, &token);
 
     if (rc == MQTTCLIENT_SUCCESS)
     {
         // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        printf("[발행] %s → %s\n", TOPIC_B_START, 구역_ID);
+        printf("[발행] %s → %s\n", TOPIC_B_destination, 구역_ID);
     }
     else
     {
@@ -132,7 +132,7 @@ int main(int argc, char *argv[])
     MQTTClient_subscribe(client, TOPIC_B_ARRIVED, QOS);
     printf("Subscribed to topic: %s\n", TOPIC_B_ARRIVED);
     // 한 번만 구역 ID 조회 & 발행
-    char *zone = B_start();
+    char *zone = B_destination();
     if (zone && *zone)
     {
         publish_zone(zone);

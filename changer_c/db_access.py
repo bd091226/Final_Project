@@ -13,8 +13,8 @@ DB_CONFIG = {
     "charset": "utf8mb4"
 }
 
+# DB 연결 객체 반환
 def get_connection():
-    # DB 연결 객체 반환
     return pymysql.connect(**DB_CONFIG)
 
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
@@ -93,10 +93,11 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
         return 운행_ID
 
+# A차 A에서 출발했다는 신호를 수신 시
 # 수정해야함!!
 def departed_A(conn, cursor, 차량_ID='A-1000'):
     """
-    A차가 A출발지를 출발했다는 신호를 수신 시:
+    A차가 A에서 출발했다는 신호를 수신 시:
     - 해당 차량에 적재된 택배들의 상태를 'A차운송중'으로 변경
     - 조건: 현재_상태가 '등록됨'인 택배만
     """
@@ -115,8 +116,8 @@ def departed_A(conn, cursor, 차량_ID='A-1000'):
     except Exception as e:
         print(f"❌ 상태 업데이트 실패 (차량 {차량_ID}): {e}")
 
-def A_start(운행_ID):
-    # A차 갈 구역함 찾기
+# A차 목적지 찾기
+def A_destination(운행_ID):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -136,9 +137,9 @@ def A_start(운행_ID):
     finally:
         conn.close()
 
-
-def B_start():
-    # 포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환
+# B차 목적지 찾기
+# 포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환
+def B_destination():
     conn = get_connection()
     try:
         with conn.cursor() as cur:
@@ -156,75 +157,6 @@ def B_start():
             return row[0] if row else None
     finally:
         conn.close()
-
-
-# B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
-# 구역_ID랑 차량_ID 수정해야함!!!! 
-def transfer_stock_zone_to_vehicle(conn, cursor, 구역_ID='02', 차량_ID='B-2000'):
-    try:
-        # 1. 구역의 현재 수량 가져오기
-        cursor.execute("""
-            SELECT 현재_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
-        """, (구역_ID,))
-        result = cursor.fetchone()
-        if result is None:
-            print(f"❌ 구역 {구역_ID} 없음")
-            return
-        저장_수량 = result[0]
-
-        # 2. 차량 적재 수량 반영
-        cursor.execute("""
-            UPDATE B차
-            SET 현재_적재_수량 = %s
-            WHERE 차량_ID = %s
-        """, (저장_수량, 차량_ID))
-
-        # 3. 구역 보관 수량 0으로 초기화, 포화 여부 0으로 추기화
-        cursor.execute("""
-            UPDATE 구역
-            SET 현재_보관_수량 = 0,
-                포화_여부 = 0,
-                포화_시각 = NULL
-            WHERE 구역_ID = %s
-        """, (구역_ID,))
-        
-        # 4. 현재 운행 중인 운행_ID 가져오기
-        cursor.execute("""
-            SELECT 운행_ID
-            FROM 운행_기록
-            
-            WHERE 차량_ID = %s 
-            AND 운행_상태 = '운행중'
-            
-            ORDER BY 운행_ID DESC
-            LIMIT 1
-        """, (차량_ID,))
-        row = cursor.fetchone()
-        if not row:
-            print("❌ 진행중인 운행 없음")
-            return
-        운행_ID = row[0]
-
-        # 5. 택배 상태 업데이트 + B차운송_시각 기록
-        cursor.execute("""
-            UPDATE 택배
-            JOIN 운행_택배 USING (택배_ID)
-            SET 택배.현재_상태 = 'B차운송중',
-                운행_택배.B차운송_시각 = NOW()
-                
-            WHERE 운행_택배.운행_ID = %s
-            AND 운행_택배.구역_ID = %s
-            AND 택배.현재_상태 = '투입됨'
-            AND 운행_택배.B차운송_시각 IS NULL
-        """, (운행_ID, 구역_ID))
-
-        conn.commit()
-        print(f"✅ B차 도착 처리 완료: 상태→'B차운송중', 구역 {구역_ID} → 차량 {차량_ID}")
-        
-    except Exception as e:
-        print(f"❌ B차 도착 처리 중 오류: {e}")
 
 # A차가 보관함에 도착할 시
 # 구역_ID는 나중에 A차의 목적지가 어디인지 알아내서 바꿔야할 것
@@ -345,3 +277,71 @@ def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'):
         print(f"✅ 차량 {차량_ID} → 구역 {구역_ID} 도착 처리 완료 (적재↓, 보관↑, 상태→투입됨)")
     except Exception as e:
         print(f"❌ 차량 {차량_ID} 도착 처리 실패: {e}")
+        
+# B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
+# 구역_ID랑 차량_ID 수정해야함!!!! 
+def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-2000'):
+    try:
+        # 1. 구역의 현재 수량 가져오기
+        cursor.execute("""
+            SELECT 현재_보관_수량
+            FROM 구역
+            WHERE 구역_ID = %s
+        """, (구역_ID,))
+        result = cursor.fetchone()
+        if result is None:
+            print(f"❌ 구역 {구역_ID} 없음")
+            return
+        저장_수량 = result[0]
+
+        # 2. 차량 적재 수량 반영
+        cursor.execute("""
+            UPDATE B차
+            SET 현재_적재_수량 = %s
+            WHERE 차량_ID = %s
+        """, (저장_수량, 차량_ID))
+
+        # 3. 구역 보관 수량 0으로 초기화, 포화 여부 0으로 초기화
+        cursor.execute("""
+            UPDATE 구역
+            SET 현재_보관_수량 = 0,
+                포화_여부 = 0,
+                포화_시각 = NULL
+            WHERE 구역_ID = %s
+        """, (구역_ID,))
+        
+        # 4. 현재 운행 중인 운행_ID 가져오기
+        cursor.execute("""
+            SELECT 운행_ID
+            FROM 운행_기록
+            
+            WHERE 차량_ID = %s 
+            AND 운행_상태 = '운행중'
+            
+            ORDER BY 운행_ID DESC
+            LIMIT 1
+        """, (차량_ID,))
+        row = cursor.fetchone()
+        if not row:
+            print("❌ 진행중인 운행 없음")
+            return
+        운행_ID = row[0]
+
+        # 5. 택배 상태 업데이트 + B차운송_시각 기록
+        cursor.execute("""
+            UPDATE 택배
+            JOIN 운행_택배 USING (택배_ID)
+            SET 택배.현재_상태 = 'B차운송중',
+                운행_택배.B차운송_시각 = NOW()
+                
+            WHERE 운행_택배.운행_ID = %s
+            AND 운행_택배.구역_ID = %s
+            AND 택배.현재_상태 = '투입됨'
+            AND 운행_택배.B차운송_시각 IS NULL
+        """, (운행_ID, 구역_ID))
+
+        conn.commit()
+        print(f"✅ B차 도착 처리 완료: 상태→'B차운송중', 구역 {구역_ID} → 차량 {차량_ID}")
+        
+    except Exception as e:
+        print(f"❌ B차 도착 처리 중 오류: {e}")
