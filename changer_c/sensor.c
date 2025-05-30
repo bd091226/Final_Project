@@ -12,9 +12,9 @@
 
 struct gpiod_chip *chip = NULL; // 전역으로 선언
 
-const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};
-const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};
-const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26};
+const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};   // Physical Pins: 11, 13, 16, 29
+const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // Physical Pins: 7, 15, 18, 31
+const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26}; // Physical Pins: 32, 33, 35, 37
 
 long get_microseconds()
 {
@@ -31,13 +31,54 @@ int move_distance(struct gpiod_chip *chip, int sensor_index, float *last_distanc
         return 0;
     }
 
-    float dist = measure_distance_by_index(chip, sensor_index);
+    int trig_pin = TRIG_PINS[sensor_index];
+    int echo_pin = ECHO_PINS[sensor_index];
+
+    struct gpiod_line *trig = gpiod_chip_get_line(chip, trig_pin);
+    struct gpiod_line *echo = gpiod_chip_get_line(chip, echo_pin);
+
+    if (!trig || !echo)
+    {
+        fprintf(stderr, "❌ 핀 초기화 실패 (Trig: %d, Echo: %d)\n", trig_pin, echo_pin);
+        return 0;
+    }
+
+    gpiod_line_request_output(trig, "trig", 0);
+    gpiod_line_request_input(echo, "echo");
+
+    // 초음파 트리거 펄스
+    gpiod_line_set_value(trig, 0);
+    usleep(2);
+    gpiod_line_set_value(trig, 1);
+    usleep(10); // 10µs HIGH
+    gpiod_line_set_value(trig, 0);
+
+    long start_time = 0, end_time = 0;
+
+    // Echo가 HIGH가 될 때까지 대기
+    while (gpiod_line_get_value(echo) == 0)
+    {
+        start_time = get_microseconds();
+    }
+
+    // Echo가 LOW가 될 때까지 대기
+    while (gpiod_line_get_value(echo) == 1)
+    {
+        end_time = get_microseconds();
+    }
+
+    long duration = end_time - start_time;
+    float dist = duration * 0.0343 / 2.0; // 거리 계산 (cm)
+
+    gpiod_line_release(trig);
+    gpiod_line_release(echo);
+
     float diff = fabs(dist - *last_distance);
-    *last_distance = dist; // 이전 거리 갱신
+    *last_distance = dist;
 
     printf("센서 %d 거리: %.2f cm → ", sensor_index + 1, dist);
 
-    if (dist <= 15.0 && diff >= 5.0)
+    if (dist <= 5.0 && diff >= 3.0)
     {
         printf("✅ 물품이 들어왔습니다. (변화 %.2fcm)\n", diff);
         return 1;
@@ -95,4 +136,34 @@ void move_servo(struct gpiod_chip *chip, int servo_index)
     printf("[서보 %d] → 0° 복귀\n", servo_index + 1);
 
     gpiod_line_release(servo);
+}
+
+int main()
+{
+    float last_distance = 0.0;
+
+    chip = gpiod_chip_open_by_name(CHIP_NAME);
+    if (!chip)
+    {
+        fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
+        return 1;
+    }
+
+    printf("▶️ 무한 루프 시작 (종료하려면 Ctrl+C)\n");
+
+    while (1)
+    {
+        int triggered = move_distance(chip, 0, &last_distance);
+
+        if (triggered)
+        {
+            move_servo(chip, 0);
+        }
+
+        usleep(500000); // 0.5초 딜레이
+    }
+
+    // 이 코드는 실제로 실행되지 않음 (루프 무한)
+    gpiod_chip_close(chip);
+    return 0;
 }
