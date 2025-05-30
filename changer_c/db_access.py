@@ -18,7 +18,7 @@ def get_connection():
     return pymysql.connect(**DB_CONFIG)
 
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
-# 수정해야함!!! 임시로 차량 ID를 고정해놓음
+# 수정필요!!! 임시로 차량 ID를 고정해놓음
 def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
     try:
         # 1. A차의 최대 적재 수량을 넘는지 확인
@@ -94,6 +94,7 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
         return 운행_ID
 
 # A차 차량_ID의 현재_적재_수량을 반환하는 함수
+# 수정필요!!
 def get_A_count(cursor, 차량_ID='A-1000'):
     try:
         cursor.execute("""
@@ -108,7 +109,7 @@ def get_A_count(cursor, 차량_ID='A-1000'):
         return None
     
 # A차 A에서 출발했다는 신호를 수신 시
-# 수정해야함!!
+# 수정필요!!
 def departed_A(conn, cursor, 차량_ID='A-1000'):
     """
     A차가 A에서 출발했다는 신호를 수신 시:
@@ -151,30 +152,9 @@ def A_destination(운행_ID):
     finally:
         conn.close()
 
-# B차 목적지 찾기
-# 포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환
-def B_destination():
-    conn = get_connection()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT 구역_ID
-                FROM 구역
-                
-                WHERE 포화_여부 = 1 
-                AND 포화_시각 IS NOT NULL
-                
-                ORDER BY 포화_시각 ASC
-                LIMIT 1
-            """)
-            row = cur.fetchone()
-            return row[0] if row else None
-    finally:
-        conn.close()
-
 # A차가 보관함에 도착할 시
 # 구역_ID는 나중에 A차의 목적지가 어디인지 알아내서 바꿔야할 것
-# 수정해야함!!
+# 수정필요!!
 def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'): 
     """
     - 구역 보관 수량 초과 여부 확인
@@ -292,8 +272,29 @@ def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'):
     except Exception as e:
         print(f"❌ 차량 {차량_ID} 도착 처리 실패: {e}")
         
+# B차 목적지 찾기
+# 포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환
+def B_destination():
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT 구역_ID
+                FROM 구역
+                
+                WHERE 포화_여부 = 1 
+                AND 포화_시각 IS NOT NULL
+                
+                ORDER BY 포화_시각 ASC
+                LIMIT 1
+            """)
+            row = cur.fetchone()
+            return row[0] if row else None
+    finally:
+        conn.close()
+        
 # B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
-# 구역_ID랑 차량_ID 수정해야함!!!! 
+# 수정필요!!!! 
 def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-2000'):
     try:
         # 1. 구역의 현재 수량 가져오기
