@@ -89,7 +89,7 @@ def on_message(client, userdata, msg):
             count = int(payload)
             운행_ID = button_A(cursor, conn, count, 운행_ID=운행_ID)
             if count > 2:
-                departed_A(conn, cursor, vehicle_id=1) 
+                departed_A(conn, cursor, 차량_ID=1) 
                 A_current_dest(client, operation_id)
         except ValueError:
             print("❌ 잘못된 숫자 payload")
@@ -98,12 +98,12 @@ def on_message(client, userdata, msg):
             print(f"📥 도착 메시지 수신: '{payload}'")
             if payload == "A차 목적지 도착":
                 print("🎯 A가 목적지에 도착")
-                zone_arrival_A(conn, cursor) # 운행_상품 테이블 업데이트 
+                zone_arrival_A(conn, cursor) # 운행_택배 테이블 업데이트 
                 A_current_dest(client, operation_id)
-                # zone_id = get_next_unload_zone_for_vehicle(cursor, vehicle_id=1)
-                # if zone_id:
-                #     client.publish("unload/zone", zone_id, qos=1)
-                #     print(f"📤 하차 지시 MQTT 발행 → unload/zone: {zone_id}")
+                # 구역_ID = get_next_unload_zone_for_vehicle(cursor, 차량_ID=1)
+                # if 구역_ID:
+                #     client.publish("unload/zone", 구역_ID, qos=1)
+                #     print(f"📤 하차 지시 MQTT 발행 → unload/zone: {구역_ID}")
                 # else:
                 #     client.publish("unload/complete", "물품을 다 운송했습니다. 출발지로 돌아가십시오.", qos=1)
                 #     print("✅ 모든 물품 하차 완료 → 복귀 지시 MQTT 발행")

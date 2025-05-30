@@ -79,13 +79,13 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
 }
 
 // 메시지 송신 함수
-void publish_zone(const char *zone_id)
+void publish_zone(const char *구역_ID)
 {
     MQTTClient_message pubmsg = MQTTClient_message_initializer; // 메세지 구조체 초기화
     char payload[64];
 
     // 페이로드 버퍼에 목적지 구역 ID를 복사
-    snprintf(payload, sizeof(payload), "%s", zone_id);
+    snprintf(payload, sizeof(payload), "%s", 구역_ID);
     // snprintf : 문자열을 형식(format)에 맞게 만들어서 문자열 변수에 저장할 수 있도록 해주는 함수
 
     pubmsg.payload = payload;
@@ -100,7 +100,7 @@ void publish_zone(const char *zone_id)
     if (rc == MQTTCLIENT_SUCCESS)
     {
         // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        printf("[발행] %s → %s\n", TOPIC_B_START, zone_id);
+        printf("[발행] %s → %s\n", TOPIC_B_START, 구역_ID);
     }
     else
     {

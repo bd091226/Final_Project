@@ -24,7 +24,7 @@ def A_current_dest(mqtt_client,operation_id): # A에게 보낼 목적지를 데�
     try:
         sql = """
             SELECT 구역_ID
-            FROM 운행_상품
+            FROM 운행_택배
             WHERE 운행_ID = %s
               AND A차운송_시각 IS NOT NULL
               AND 투입_시각 IS NULL
@@ -65,8 +65,8 @@ def check_saturation_and_publish():
         """)
         row = cursor.fetchone()
         if row:
-            zone_id = str(row[0])
-            b_msg = f"B차 {zone_id}로 출발"
+            구역_ID = str(row[0])
+            b_msg = f"B차 {구역_ID}로 출발"
             mqtt_client.publish(MQTT_TOPIC, payload=b_msg)
             print(f"🚚 B차 목적지 메시지 전송: {b_msg}")
         else:

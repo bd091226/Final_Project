@@ -53,12 +53,12 @@ void delivered(void *context, MQTTClient_deliveryToken dt)
     // 메시지 발송 완료 콜백 (필요시 사용)
 }
 
-void publish_zone(const char *zone_id)
+void publish_zone(const char *구역_ID)
 {
     MQTTClient_message pubmsg = MQTTClient_message_initializer;
     char payload[64];
 
-    snprintf(payload, sizeof(payload), "%s", zone_id);
+    snprintf(payload, sizeof(payload), "%s", 구역_ID);
 
     pubmsg.payload = payload;
     pubmsg.payloadlen = (int)strlen(payload);
@@ -71,7 +71,7 @@ void publish_zone(const char *zone_id)
 
     if (rc == MQTTCLIENT_SUCCESS)
     {
-        printf("[발행] %s → %s\n", TOPIC_A_STARTDEST, zone_id);
+        printf("[발행] %s → %s\n", TOPIC_A_STARTDEST, 구역_ID);
     }
     else
     {
@@ -146,8 +146,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             if (move_distance(chip, 0, &prev_distance)) // 수정필요!! 02(0)의 초음파센서를 돌아가게 하는걸로 임시로 해놓음
                                                         // 나중엔 해당 구역번호를 받아서 해당 센서만 동작해야함!!
             {
-                // zone_arrival_A(conn, cursor, vehicle_id=1, zone_id)
-                // zone_id를 msgPayload나 다른 로직으로 결정해야 합니다.
+                // zone_arrival_A(conn, cursor, 차량_ID=1, 구역_ID)
+                // 구역_ID를 msgPayload나 다른 로직으로 결정해야 합니다.
                 // 예시에선 고정값 '02'를 사용하므로 아래와 같이 호출합니다.
                 char cmd[512];
                 snprintf(cmd, sizeof(cmd),
@@ -158,8 +158,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                          "zone_arrival_A(conn, cur, %d, '%s')\n"
                          "conn.close()\n"
                          "EOF",
-                         1,   // vehicle_id
-                         "02" // zone_id -> 나중에 수정
+                         1,   // 차량_ID
+                         "02" // 구역_ID -> 나중에 수정
                 );
 
                 int ret = system(cmd);
@@ -185,7 +185,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             printf("출발 알림 수신: %s\n", msgPayload);
 
             char cmd[512];
-            // vehicle_id를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
+            // 차량_ID를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
             snprintf(cmd, sizeof(cmd),
                      "python3 - << 'EOF'\n"
                      "from db_access import get_connection, departed_A\n"

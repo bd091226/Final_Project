@@ -25,7 +25,7 @@ def on_message(client, userdata, msg):
         # DB에 반영
         qr_insert(type_, data)
     else:
-        print("[PiB] Invalid QR format; e4xpected '<지역> <상품>'")
+        print("[PiB] Invalid QR format; e4xpected '<지역> <택배>'")
 
 if __name__ == "__main__":
     client = mqtt.Client("PiB_QR_Receiver")
