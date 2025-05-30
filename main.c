@@ -1,3 +1,4 @@
+//main.c
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -251,7 +252,7 @@ int main() {
 
     printf("MQTT connected. Waiting for button press...\n");
 
-    //QR_read();
+    QR_read();
     // 목적지 출발 토픽 구독
     MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
 
