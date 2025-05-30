@@ -1,9 +1,9 @@
+#include "sensor.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <MQTTClient.h>
 #include <unistd.h>
-#include <sensor.h>
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "RaspberryPi_Container"      // 다른 클라이언트 ID 사용 권장
@@ -225,8 +225,7 @@ int main(int argc, char *argv[])
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     int rc;
 
-    MQTTClient_create(&client, ADDRESS, CLIENTID,
-                      MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    MQTTClient_create(&client, ADDRESS, CLIENTID,MQTTCLIENT_PERSISTENCE_NONE, NULL);
 
     MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, delivered);
     // connlost : 연결 끊김 콜백
@@ -239,6 +238,7 @@ int main(int argc, char *argv[])
         printf("Failed to connect, return code %d\n", rc);
         return -1;
     }
+    
 
     // 연결 성공시 출력
     printf("Connected to MQTT broker, subscribing to topic: %s\n", TOPIC_COUNT);
