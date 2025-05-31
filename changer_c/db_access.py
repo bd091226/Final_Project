@@ -21,40 +21,6 @@ def get_connection():
 # 수정필요!!! 임시로 차량 ID를 고정해놓음
 def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
     try:
-        # 1. A차의 최대 적재 수량을 넘는지 확인
-        cursor.execute("""
-            SELECT 현재_보관_수량, 최대_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
-        """, (구역_ID,))
-        current, maximum = cursor.fetchone()
-        if current >= maximum:
-            print(f"❌ 보관 수량 초과: 현재 {current}, 최대 {maximum}")
-            return
-        
-        # 2. A차의 적재 수량 업데이트
-        cursor.execute("""
-            UPDATE A차 
-            SET 현재_적재_수량 = %s,
-                LED_상태 = CASE WHEN %s = 최대_적재_수량 THEN '빨강' ELSE LED_상태 END
-            WHERE 차량_ID = %s
-        """, (count, 차량_ID))
-        print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
-
-        # 3. 운행_ID 처리
-        if count == 1 or 운행_ID is None:
-            cursor.execute(
-                """
-                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
-                VALUES (1, NOW(), '비운행중')
-                """
-                (차량_ID,)
-            )
-            운행_ID = cursor.lastrowid
-            print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
-        else:
-            print(f"🔄 기존 운행_ID 사용: {운행_ID}")
-
         # 4. 아직 등록되지 않은 가장 오래된 택배 1개 조회
         cursor.execute(
             """
@@ -74,6 +40,42 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
             return 운행_ID
 
         product_id, 구역_ID, 등록_시각 = product
+        
+        # 1. A차의 최대 적재 수량을 넘는지 확인
+        cursor.execute("""
+            SELECT 현재_보관_수량, 최대_보관_수량
+            FROM 구역
+            WHERE 구역_ID = %s
+        """, (구역_ID,))
+        current, maximum = cursor.fetchone()
+        if current >= maximum:
+            print(f"❌ 보관 수량 초과: 현재 {current}, 최대 {maximum}")
+            return
+        
+        # 2. A차의 적재 수량 업데이트
+        cursor.execute(
+            """
+            UPDATE A차 
+            SET 현재_적재_수량 = %s,
+                LED_상태 = CASE WHEN %s = 최대_적재_수량 THEN '빨강' ELSE LED_상태 END
+            WHERE 차량_ID = %s
+        """, (count, count, 차량_ID))
+
+        print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
+
+        # 3. 운행_ID 처리
+        if count == 1 or 운행_ID is None:
+            cursor.execute(
+                """
+                INSERT INTO 운행_기록 (차량_ID, 운행_시작, 운행_상태)
+                VALUES (%s, NOW(), '비운행중')
+                """,
+                (차량_ID,)
+            )
+            운행_ID = cursor.lastrowid
+            print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}")
+        else:
+            print(f"🔄 기존 운행_ID 사용: {운행_ID}")
 
         # 5. 운행_택배 등록
         cursor.execute(

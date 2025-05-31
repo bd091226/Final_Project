@@ -71,7 +71,7 @@ def button_A(cursor, conn, count, 운행_ID=None):
         if count == 1 or 운행_ID is None:
             cursor.execute(
                 """
-                INSERT INTO 운행_기록 (차량_ID, 운행_시작_시각, 운행_상태)
+                INSERT INTO 운행_기록 (차량_ID, 운행_시작, 운행_상태)
                 VALUES (1, NOW(), '비운행중')
                 """
             )
