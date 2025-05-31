@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-servo-test",
+      "type": "shell",
+      "command": "gcc",
+      "args": [
+        "/home/pi/FinalProject/servo_test.c",
+        "-o",
+        "/home/pi/FinalProject/servo_test",
+        "-lgpiod"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    }
+  ]
+}

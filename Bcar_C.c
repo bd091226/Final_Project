@@ -32,10 +32,7 @@ void send_arrival(const char *zone_id) {
 
     MQTTClient_deliveryToken token;
 
-    int rc = MQTTClient_publishMessage(client,
-                                       TOPIC_B_ARRIVED,
-                                       &pubmsg,
-                                       &token);
+    int rc = MQTTClient_publishMessage(client,TOPIC_B_ARRIVED,&pubmsg,&token);
     if (rc != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "도착 메시지 발행 실패, rc=%d\n", rc);
         return;
