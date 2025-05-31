@@ -1,68 +1,22 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "build count_mattcheck",
-            "type": "shell",
-            "command": "gcc",
-            "args": [
-                "-g",
-                "/home/pi/Final_Project/changer_c/count_mattcheck.c",
-                "/home/pi/Final_Project/changer_c/sensor.c",
-                "-o",
-                "/home/pi/Final_Project/changer_c/count_mattcheck",
-                "-lgpiod",
-                "-lpaho-mqtt3c"
-            ],
-            "group": "build",
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "label": "Run combined",
-            "type": "shell",
-            "command": "gcc",
-            "args": [
-                "-g",
-                "/home/pi/Final_Project/changer_c/combined_mqtt.c",
-                "/home/pi/Final_Project/changer_c/count_mattcheck.c",
-                "/home/pi/Final_Project/changer_c/sensor.c",
-                "/home/pi/Final_Project/changer_c/Bcar_C.c",
-                "-o",
-                "/home/pi/Final_Project/changer_c/combined_mqtt",
-                "-lgpiod",
-                "-lpaho-mqtt3c",
-                "-lMQTTClient"
-            ],
-            "group": "build",
-            "problemMatcher": [
-                "$gcc"
-            ]
-        },
-        {
-            "type": "cppbuild",
-            "label": "C/C++: gcc 활성 파일 빌드",
-            "command": "/usr/bin/gcc",
-            "args": [
-                "-fdiagnostics-color=always",
-                "-g",
-                "${file}",
-                "-o",
-                "${fileDirname}/${fileBasenameNoExtension}",
-                ""
-            ],
-            "options": {
-                "cwd": "${fileDirname}"
-            },
-            "problemMatcher": [
-                "$gcc"
-            ],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "detail": "디버거에서 생성된 작업입니다."
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build combined_mqtt",
+      "type": "shell",
+      "command": "/bin/bash",
+      "args": [
+        "-c",
+        "gcc count_mattcheck.c sensor.c -o count_mattcheck -lpaho-mqtt3c -lgpiod && gcc Bcar_C.c sensor.c -o Bcar_C -lpaho-mqtt3c -lgpiod && gcc combined_mqtt.c -o combined_mqtt -lpaho-mqtt3c -lgpiod"
+      ],
+      "options": {
+        "cwd": "/home/pi/Final_Project/changer_c"
+      },
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": ["$gcc"]
+    }
+  ]
 }
