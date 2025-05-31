@@ -21,7 +21,7 @@ def get_connection():
 # 수정필요!!! 임시로 차량 ID를 고정해놓음
 def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
     try:
-        # 1. 아직 등록되지 않은 가장 오래된 택배 1개 조회
+        # 1. 등록된 택배 중 가장 오래된 택배 1개 조회
         cursor.execute(
             """
             SELECT s.택배_ID, s.구역_ID, s.등록_시각
@@ -36,7 +36,7 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
         )
         product = cursor.fetchone()
         if not product:
-            print("❌ 등록 대기 중인 택배이 없습니다.")
+            print("❌ 등록된 택배 중 실을 수 있는 택배가 없습니다.")
             return 운행_ID
 
         product_id, 구역_ID, 등록_시각 = product
