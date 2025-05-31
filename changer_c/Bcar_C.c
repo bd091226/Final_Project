@@ -3,7 +3,7 @@
 #include <string.h>
 #include <MQTTClient.h> // MQTTClient.h는 MQTT 클라이언트 라이브러리의 헤더 파일
 #include <unistd.h>
-#include <sensor.h>
+#include "sensor.h"
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장

@@ -5,11 +5,11 @@ import pymysql  # pip3 install pymysql
 
 # ——— DB 접속 정보 ———
 DB_CONFIG = {
-    "user": "user",
-    "password": "Kosta_Final_250519",
-    "host": "127.0.0.1",
-    "port": 3307,  # SSH 포워딩한 포트
-    "database": "Final_Project",
+    'host': '13.209.8.231',
+    'user': 'user',
+    'password': 'Kosta_Final_250519',
+    'database': 'Final_Project',
+    'port': 3306,
     "charset": "utf8mb4"
 }
 

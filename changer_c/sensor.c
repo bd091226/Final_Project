@@ -138,32 +138,32 @@ void move_servo(struct gpiod_chip *chip, int servo_index)
     gpiod_line_release(servo);
 }
 
-int main()
-{
-    float last_distance = 0.0;
+// int main()
+// {
+//     float last_distance = 0.0;
 
-    chip = gpiod_chip_open_by_name(CHIP_NAME);
-    if (!chip)
-    {
-        fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
-        return 1;
-    }
+//     chip = gpiod_chip_open_by_name(CHIP_NAME);
+//     if (!chip)
+//     {
+//         fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
+//         return 1;
+//     }
 
-    printf("▶️ 무한 루프 시작 (종료하려면 Ctrl+C)\n");
+//     printf("▶️ 무한 루프 시작 (종료하려면 Ctrl+C)\n");
 
-    while (1)
-    {
-        int triggered = move_distance(chip, 0, &last_distance);
+//     while (1)
+//     {
+//         int triggered = move_distance(chip, 0, &last_distance);
 
-        if (triggered)
-        {
-            move_servo(chip, 0);
-        }
+//         if (triggered)
+//         {
+//             move_servo(chip, 0);
+//         }
 
-        usleep(500000); // 0.5초 딜레이
-    }
+//         usleep(500000); // 0.5초 딜레이
+//     }
 
-    // 이 코드는 실제로 실행되지 않음 (루프 무한)
-    gpiod_chip_close(chip);
-    return 0;
-}
+//     // 이 코드는 실제로 실행되지 않음 (루프 무한)
+//     gpiod_chip_close(chip);
+//     return 0;
+//}
