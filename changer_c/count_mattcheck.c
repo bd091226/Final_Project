@@ -105,7 +105,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                  "conn.close()\n"
                  "EOF",
                  count,
-                 1001 // 기존 운행_ID
+                 1001 // 기존 운행_ID //변경
         );
         int ret = system(cmd);
         if (ret == -1)
@@ -120,7 +120,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         if (count > 2)
         {
             // 차량_ID를 임의로 지정하여 나중에 변경
-            char *zone = A_destination("1001");
+            char *zone = A_destination("A-1000");
 
             if (zone && *zone)
             {
@@ -171,6 +171,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                 {
                     printf("✅ zone_arrival_A() 실행 완료\n");
                 }
+
+                
             }
             else
             {
@@ -191,10 +193,10 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                      "from db_access import get_connection, departed_A\n"
                      "conn = get_connection()\n"
                      "cur = conn.cursor()\n"
-                     "departed_A(conn, cur, %d)\n"
+                     "departed_A(conn, cur, %s)\n"
                      "conn.close()\n"
                      "EOF",
-                     1);
+                     'A-1000'); // 수정
             int ret = system(cmd);
             if (ret != 0)
             {
