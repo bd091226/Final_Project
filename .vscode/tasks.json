@@ -7,15 +7,14 @@
             "command": "gcc",
             "args": [
                 "-g",
-                "/home/pi/FinalProject/main.c",
+                "/home/pi/Final_Project/main.c",
                 "-o",
-                "/home/pi/FinalProject/main",
+                "/home/pi/Final_Project/main",
                 "-lgpiod",
                 "-lpaho-mqtt3c"
             ],
             "group": "build",
             "problemMatcher": [
-
                 "$gcc"
             ]
         }
