@@ -16,6 +16,17 @@ const int TRIG_PINS[SENSOR_COUNT] = {17, 27, 23, 5};   // Physical Pins: 11, 13,
 const int ECHO_PINS[SENSOR_COUNT] = {4, 22, 24, 6};    // Physical Pins: 7, 15, 18, 31
 const int SERVO_PINS[SENSOR_COUNT] = {12, 13, 19, 26}; // Physical Pins: 32, 33, 35, 37
 
+// sensor.c 안에서 실행될 함수
+void init_gpio_chip()
+{
+    chip = gpiod_chip_open_by_name("gpiochip0");
+    if (!chip)
+    {
+        fprintf(stderr, "❌ chip 초기화 실패\n");
+        exit(1);
+    }
+}
+
 long get_microseconds()
 {
     struct timespec ts;
@@ -46,48 +57,74 @@ int move_distance(struct gpiod_chip *chip, int sensor_index, float *last_distanc
     gpiod_line_request_output(trig, "trig", 0);
     gpiod_line_request_input(echo, "echo");
 
-    // 초음파 트리거 펄스
-    gpiod_line_set_value(trig, 0);
-    usleep(2);
-    gpiod_line_set_value(trig, 1);
-    usleep(10); // 10µs HIGH
-    gpiod_line_set_value(trig, 0);
+    long start_loop_time = get_microseconds();
+    long max_duration = 10000000; // 10초 = 10,000,000µs
 
-    long start_time = 0, end_time = 0;
-
-    // Echo가 HIGH가 될 때까지 대기
-    while (gpiod_line_get_value(echo) == 0)
+    while (get_microseconds() - start_loop_time < max_duration)
     {
-        start_time = get_microseconds();
+        // 트리거 펄스
+        gpiod_line_set_value(trig, 0);
+        usleep(2);
+        gpiod_line_set_value(trig, 1);
+        usleep(10);
+        gpiod_line_set_value(trig, 0);
+
+        long start_time = 0, end_time = 0;
+
+        // Echo HIGH 대기 (30ms)
+        long timeout = get_microseconds() + 30000;
+        while (1)
+        {
+            int val = gpiod_line_get_value(echo);
+            if (val < 0)
+                break;
+            if (val == 1)
+            {
+                start_time = get_microseconds();
+                break;
+            }
+            if (get_microseconds() > timeout)
+                break;
+        }
+
+        // Echo LOW 대기 (30ms)
+        timeout = get_microseconds() + 30000;
+        while (1)
+        {
+            int val = gpiod_line_get_value(echo);
+            if (val < 0)
+                break;
+            if (val == 0)
+            {
+                end_time = get_microseconds();
+                break;
+            }
+            if (get_microseconds() > timeout)
+                break;
+        }
+
+        long duration = end_time - start_time;
+        float dist = duration * 0.0343 / 2.0;
+        float diff = fabs(dist - *last_distance);
+        *last_distance = dist;
+
+        printf("센서 %d 거리: %.2f cm (변화 %.2fcm)\n", sensor_index + 1, dist, diff);
+
+        if (dist <= 10.0 && diff >= 3.0)
+        {
+            printf("✅ 물품이 들어왔습니다.\n");
+            gpiod_line_release(trig);
+            gpiod_line_release(echo);
+            return 1;
+        }
+
+        usleep(500000); // 0.5초 간격 반복
     }
 
-    // Echo가 LOW가 될 때까지 대기
-    while (gpiod_line_get_value(echo) == 1)
-    {
-        end_time = get_microseconds();
-    }
-
-    long duration = end_time - start_time;
-    float dist = duration * 0.0343 / 2.0; // 거리 계산 (cm)
-
+    printf("🔕 10초 동안 물품이 들어오지 않았습니다.\n");
     gpiod_line_release(trig);
     gpiod_line_release(echo);
-
-    float diff = fabs(dist - *last_distance);
-    *last_distance = dist;
-
-    printf("센서 %d 거리: %.2f cm → ", sensor_index + 1, dist);
-
-    if (dist <= 5.0 && diff >= 3.0)
-    {
-        printf("✅ 물품이 들어왔습니다. (변화 %.2fcm)\n", diff);
-        return 1;
-    }
-    else
-    {
-        printf("🔕 물품이 들어오지 않았습니다.\n");
-        return 0;
-    }
+    return 0;
 }
 
 // 서보모터 임시로 구역 02의 서보모터1만 돌아가게 해놓음

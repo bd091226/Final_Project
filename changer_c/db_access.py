@@ -223,7 +223,7 @@ def A_destination(운행_ID):
 # A차가 보관함에 도착할 시
 # 구역_ID는 나중에 A차의 목적지가 어디인지 알아내서 바꿔야할 것
 # 수정필요!!
-def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'): 
+def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID): 
     """
     - 구역 보관 수량 초과 여부 확인
     - 차량 적재량 1 감소
@@ -291,14 +291,18 @@ def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'):
             JOIN 운행_택배 USING (택배_ID)
             SET 택배.현재_상태 = '투입됨',
                 운행_택배.투입_시각 = NOW()
-            WHERE 운행_택배.운행_ID = %s
-                AND 운행_택배.구역_ID = %s
-                AND 운행_택배.투입_시각 IS NULL
-                AND 택배.현재_상태 = 'A차운송중'
-            LIMIT 1
+            WHERE 택배.택배_ID = (
+                SELECT 택배_ID FROM (
+                    SELECT 택배_ID
+                    FROM 운행_택배
+                    WHERE 운행_ID = %s AND 구역_ID = %s AND 투입_시각 IS NULL
+                    LIMIT 1
+                ) AS sub
+            );
             """,
             (운행_ID, 구역_ID)
         )
+
 
         # 보관 수량 확인 후 포화 여부 업데이트
         cursor.execute(
