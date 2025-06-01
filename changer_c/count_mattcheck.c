@@ -8,8 +8,8 @@
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "RaspberryPi_Container"            // 다른 클라이언트 ID 사용 권장
 #define TOPIC_COUNT "storage/count"                 // count 값 수신
-#define TOPIC_A_destination "storage/start"         // 출발 알림 수신용 토픽
-#define TOPIC_A_destinationDEST "storage/startdest" // 목적지 구역 송신 토픽
+#define TOPIC_A_STARTPOINT "storage/startpoint"     // 출발지점 알림 수신용 토픽
+#define TOPIC_A_DEST "storage/dest"                 // 목적지 구역 송신 토픽
 #define TOPIC_A_ARRIVED "storage/arrived"           // 목적지 도착 메시지 수신 토픽
 #define TOPIC_A_HOME "storage/home"                 // A차 집으로 출발 메시지 송신 토픽
 #define QOS 1
@@ -19,7 +19,7 @@ MQTTClient client;          // MQTT 클라이언트 전역 변수
 volatile int connected = 0; // 연결 여부 확인
 
 // Python에서 A차의 다음 목적지 구역 ID 가져오기
-char *A_destination(const char *차량_id)
+char *A_destination(const char *운행_id)
 {
     static char result[64]; //  출력 결과를 저장
     char cmd[256];          // popen에게 전달할 python 명령어를 저장
@@ -29,7 +29,7 @@ char *A_destination(const char *차량_id)
              "python3 -c \"from db_access import A_destination; "
              "zone = A_destination('%s'); "
              "print(zone if zone else '')\"",
-             차량_id);
+             운행_id);
 
     // 출력 스트림을 읽기 모드로 오픈
     FILE *fp = popen(cmd, "r");
@@ -71,11 +71,11 @@ void publish_zone(const char *구역_ID)
     MQTTClient_deliveryToken token; // 발송 완료 토큰
 
     // A차가 이동해야하는  목적지 구역 송신
-    int rc = MQTTClient_publishMessage(client, TOPIC_A_destinationDEST, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_A_DEST, &pubmsg, &token);
 
     if (rc == MQTTCLIENT_SUCCESS)
     {
-        printf("[송신] %s → %s\n", TOPIC_A_destinationDEST, 구역_ID);
+        printf("[송신] %s → %s\n", TOPIC_A_DEST, 구역_ID);
     }
     else
     {
@@ -110,6 +110,7 @@ void publish_home_message()
         fprintf(stderr, "MQTT publish failed (rc=%d)\n", rc);
     }
 }
+
 
 // 수신받았을 때 호출되는 함수
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
@@ -154,11 +155,34 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             printf("✅ Python button_A 실행 완료 (count=%d)\n", count);
         }
 
-        // count의 값이 2보다 클 경우에만 다음 구역 조회 및 송신
+        // count의 값이 2보다 클 경우에 출발 지점으로 출발하라는 문구 송신
         if (count > 2)
         {
+            MQTTClient_message startMsg=MQTTClient_message_initializer;
+            const char *startPayload="출발지점으로 출발";
+            startMsg.payload=(char*)startPayload;
+            startMsg.payloadlen = (int)strlen(startPayload);
+            startMsg.qos = QOS;
+            startMsg.retained = 0;
+            
+            MQTTClient_deliveryToken startToken;
+            int rc_start = MQTTClient_publishMessage(client,TOPIC_A_STARTPOINT,&startMsg, &startToken);
+            if(rc_start==MQTTCLIENT_SUCCESS)
+            {
+                printf("[송신] %s → %s\n", TOPIC_A_STARTPOINT, startPayload);
+            }
+            else{
+                printf("MQTT publish failed (rc=%d)\n", rc_start);
+            }
+        }
+    }
+
+    if(strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
+    {
+        if(strcmp(msgPayload,"출발지점 도착")==0)
+        {
             // 차량_ID를 임의로 지정하여 나중에 변경
-            char *zone = A_destination("A-1000");
+            char *zone = A_destination("1000");
 
             if (zone && *zone)
             {
@@ -168,10 +192,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             else
             {
                 // 조회된 구역 ID가 없으면
-                // publish_zone("02"); // 임의로 넣어놓음, 나중에 삭제 요청바람
+                publish_zone("02"); // 임의로 넣어놓음, 나중에 삭제 요청바람
                 printf("조회된 구역이 없습니다.\n");
             }
         }
+        
     }
 
     // 수신한 토픽이 storage/arrived일 경우
@@ -270,34 +295,34 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         }
 
         // TOPIC_A_destination로 A차가 목적지로 출발했다는 메세지를 수신
-        if (strcmp(topicName, TOPIC_A_destination) == 0)
-        {
-            // "~로 출발했음" 메시지 수신 처리
-            printf("출발 알림 수신: %s\n", msgPayload);
+        // if (strcmp(topicName, TOPIC_A_destination) == 0)
+        // {
+        //     // "~로 출발했음" 메시지 수신 처리
+        //     printf("출발 알림 수신: %s\n", msgPayload);
 
-            char cmd[512];
-            // 차량_ID를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
-            snprintf(cmd, sizeof(cmd),
-                     "python3 - << 'EOF'\n"
-                     "from db_access import get_connection, departed_A\n"
-                     "conn = get_connection()\n"
-                     "cur = conn.cursor()\n"
-                     "departed_A(conn, cur, %s)\n"
-                     "conn.close()\n"
-                     "EOF",
-                     'A-1000'); // 수정 요청
+        //     char cmd[512];
+        //     // 차량_ID를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
+        //     snprintf(cmd, sizeof(cmd),
+        //              "python3 - << 'EOF'\n"
+        //              "from db_access import get_connection, departed_A\n"
+        //              "conn = get_connection()\n"
+        //              "cur = conn.cursor()\n"
+        //              "departed_A(conn, cur, %s)\n"
+        //              "conn.close()\n"
+        //              "EOF",
+        //              'A-1000'); // 수정 요청
 
-            // system으로 departed_A발행
-            int ret = system(cmd);
-            if (ret != 0)
-            {
-                fprintf(stderr, "❌ departed_A() 실행 실패 (rc=%d)\n", ret);
-            }
-            else
-            {
-                printf("✅ departed_A() 실행 완료\n");
-            }
-        }
+        //     // system으로 departed_A발행
+        //     int ret = system(cmd);
+        //     if (ret != 0)
+        //     {
+        //         fprintf(stderr, "❌ departed_A() 실행 실패 (rc=%d)\n", ret);
+        //     }
+        //     else
+        //     {
+        //         printf("✅ departed_A() 실행 완료\n");
+        //     }
+        // }
 
         MQTTClient_freeMessage(&message);
         MQTTClient_free(topicName);
@@ -347,7 +372,7 @@ int main(int argc, char *argv[])
     // 구독할 토픽 등록
     MQTTClient_subscribe(client, TOPIC_COUNT, QOS);
     MQTTClient_subscribe(client, TOPIC_A_ARRIVED, QOS);
-    MQTTClient_subscribe(client, TOPIC_A_destination, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
 
     // 메시지 수신을 계속 대기 (무한 루프)
     while (1)
