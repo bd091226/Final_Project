@@ -178,6 +178,33 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         }
     }
 
+//TOPIC_A_destination로 A차가 목적지로 출발했다는 메세지를 수신
+    if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
+    {
+        char cmd[512];
+        // 차량_ID를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
+        snprintf(cmd, sizeof(cmd),
+                    "python3 - << 'EOF'\n"
+                    "from db_access import get_connection, departed_A\n"
+                    "conn = get_connection()\n"
+                    "cur = conn.cursor()\n"
+                    "departed_A(conn, cur, %s)\n"
+                    "conn.close()\n"
+                    "EOF",
+                    'A-1000'); // 수정 요청
+
+        // system으로 departed_A발행
+        int ret = system(cmd);
+        if (ret != 0)
+        {
+            fprintf(stderr, "❌ departed_A() 실행 실패 (rc=%d)\n", ret);
+        }
+        else
+        {
+            printf("✅ departed_A() 실행 완료\n");
+        }
+    }
+
     if(strcmp(topicName, TOPIC_A_STARTPOINT_ARRIVED) == 0)
     {
         // 차량_ID를 임의로 지정하여 나중에 변경
@@ -298,35 +325,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     //         
     //     }
 
-        // TOPIC_A_destination로 A차가 목적지로 출발했다는 메세지를 수신
-        // if (strcmp(topicName, TOPIC_A_destination) == 0)
-        // {
-        //     // "~로 출발했음" 메시지 수신 처리
-        //     printf("출발 알림 수신: %s\n", msgPayload);
-
-        //     char cmd[512];
-        //     // 차량_ID를 1로 고정. 필요하면 msgPayload에서 파싱해 넣어도 됩니다.
-        //     snprintf(cmd, sizeof(cmd),
-        //              "python3 - << 'EOF'\n"
-        //              "from db_access import get_connection, departed_A\n"
-        //              "conn = get_connection()\n"
-        //              "cur = conn.cursor()\n"
-        //              "departed_A(conn, cur, %s)\n"
-        //              "conn.close()\n"
-        //              "EOF",
-        //              'A-1000'); // 수정 요청
-
-        //     // system으로 departed_A발행
-        //     int ret = system(cmd);
-        //     if (ret != 0)
-        //     {
-        //         fprintf(stderr, "❌ departed_A() 실행 실패 (rc=%d)\n", ret);
-        //     }
-        //     else
-        //     {
-        //         printf("✅ departed_A() 실행 완료\n");
-        //     }
-        // }
+        
 
         MQTTClient_freeMessage(&message);
         MQTTClient_free(topicName);
