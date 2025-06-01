@@ -57,7 +57,7 @@
 //#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
 #define TOPIC_COUNT         "storage/count"       // 버튼 누른 횟수 전송용 토픽
 #define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
-#define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arried"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
+#define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arrived"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
 #define TOPIC_A_DEST_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
 #define TOPIC_A_HOME        "storage/home"        // 집으로 복귀 알림용 토픽
@@ -277,6 +277,7 @@ int main() {
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
     MQTTClient_subscribe(client, TOPIC_A_DEST_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_HOME, QOS);
     
 
     // 9) 버튼의 마지막 상태
