@@ -1,3 +1,5 @@
+# ssh -i ~/Final_Project/kosta-final-aws-key-250519.pem ubuntu@ec2-13-125-155-221.ap-northeast-2.compute.amazonaws.com
+
 #!/usr/bin/env python3
 # db_access.py
 
@@ -19,7 +21,11 @@ def get_connection():
 
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
 # 수정필요!!! 임시로 차량 ID를 고정해놓음
-def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
+_last_운행_ID = None
+
+def button_A(cursor, conn, count, 차량_ID):
+    global _last_운행_ID
+
     try:
         # 1. 등록된 택배 중 가장 오래된 택배 1개 조회
         cursor.execute(
@@ -27,7 +33,7 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
             SELECT s.택배_ID, s.구역_ID, s.등록_시각
             FROM 택배 s
             WHERE s.현재_상태 = '등록됨'
-            AND NOT EXISTS (
+                AND NOT EXISTS (
                 SELECT 1 FROM 운행_택배 us WHERE us.택배_ID = s.택배_ID
             )
             ORDER BY s.택배_ID ASC
@@ -37,31 +43,26 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
         product = cursor.fetchone()
         if not product:
             print("❌ 등록된 택배 중 실을 수 있는 택배가 없습니다.")
-            return 운행_ID
+            print(-1)
+            return -1
 
         product_id, 구역_ID, 등록_시각 = product
-        
-        # 2. count==1일 경우 운행_ID 생성, count>=2일 경우 생성한 ID 그대로 사용
-        if count == 1 or 운행_ID is None:
-            #운행 ID 생성
-            cursor.execute(
-                """
+
+        # 2. count == 1 → 운행 생성, else → 기존 운행 사용
+        if count == 1:
+            cursor.execute("""
                 INSERT INTO 운행_기록 (차량_ID, 운행_상태)
-                VALUES ('temp', '비운행중')
-                """
-            )
+                VALUES (%s, '비운행중')
+            """, (차량_ID,))
             운행_ID = cursor.lastrowid
-            차량_ID = f"A-{운행_ID}"
-
-            # UPDATE 차량_ID
-            cursor.execute(
-                """
-                UPDATE 운행_기록 SET 차량_ID = %s WHERE 운행_ID = %s
-                """, (차량_ID, 운행_ID)
-            )
-
+            _last_운행_ID = 운행_ID  # 저장해두기
             print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}, 차량_ID={차량_ID}")
         else:
+            if _last_운행_ID is None:
+                print("❌ 이전 운행_ID 없음 (count > 1인데 운행 생성 안 됨)")
+                print(-1)
+                return -1
+            운행_ID = _last_운행_ID
             print(f"🔄 기존 운행_ID 사용: {운행_ID}")
 
         # 3. 운행_택배 등록
@@ -74,19 +75,19 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
             (운행_ID, product_id, 구역_ID, count, 등록_시각)
         )
         print(f"✅ 운행_택배 등록 완료: 택배 {product_id} → 운행 {운행_ID}, 순번 {count}")
-        
-        # 4. A차의 최대 적재 수량을 넘는지 확인
+
+        # 4. 구역 보관 수량 초과 확인
         cursor.execute("""
             SELECT 현재_보관_수량, 최대_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
+            FROM 구역 WHERE 구역_ID = %s
         """, (구역_ID,))
         current, maximum = cursor.fetchone()
         if current >= maximum:
             print(f"❌ 보관 수량 초과: 현재 {current}, 최대 {maximum}")
+            print(운행_ID)
             return 운행_ID
-            
-        # 5. A차의 적재 수량 업데이트 (A-로 시작하는 차량만 처리)
+
+        # 5. 차량 적재 수량 업데이트
         if 차량_ID.startswith('A-'):
             cursor.execute(
                 """
@@ -98,32 +99,29 @@ def button_A(cursor, conn, count, 운행_ID, 차량_ID='A-1000'):
                 (count, count, 차량_ID)
             )
             print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
-        
-        # 6. 적재 수량 == 최대 적재 수량일 경우 운행 상태 변경
-        cursor.execute(
-            """
-            SELECT 최대_적재_수량 
-            FROM 차량 WHERE 차량_ID = %s
-            """, (차량_ID,)
-        )
+
+        # 6. 최대 적재 도달 시 운행 상태 변경
+        # 이걸 출발하는 departed도 옮길지 고민필요
+        cursor.execute("""
+            SELECT 최대_적재_수량 FROM 차량 WHERE 차량_ID = %s
+        """, (차량_ID,))
         result = cursor.fetchone()
         if result and count == result[0]:
-            # 최근 운행_ID 찾아 상태 변경
-            cursor.execute(
-                """
+            cursor.execute("""
                 UPDATE 운행_기록
-                SET 운행_시작 = NOW(),
-                    운행_상태 = '운행중'
-                WHERE 차량_ID = %s
-                """, (차량_ID,)
-            )
+                SET 운행_시작 = NOW(), 운행_상태 = '운행중'
+                WHERE 운행_ID = %s
+            """, (운행_ID,))
             print("🚚 최대 적재 도달 → 운행_기록 업데이트 완료 (운행중 상태)")
+
         conn.commit()
+        print(운행_ID)
         return 운행_ID
 
     except Exception as e:
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
-        return 운행_ID
+        print(-1)
+        return -1
 
 # A차 차량_ID의 현재_적재_수량을 반환하는 함수
 # 수정필요!!
@@ -162,7 +160,7 @@ def departed_A(conn, cursor, 차량_ID='A-1000'):
         print(f"✅ 차량 {차량_ID} 택배 상태 'A차운송중'으로 업데이트 완료")
     except Exception as e:
         print(f"❌ 상태 업데이트 실패 (차량 {차량_ID}): {e}")
-
+        
 # A차 목적지 찾기
 def A_destination(운행_ID):
     conn = get_connection()
@@ -171,11 +169,9 @@ def A_destination(운행_ID):
             cur.execute("""
                 SELECT 구역_ID
                 FROM 운행_택배
-                
                 WHERE 운행_ID = %s 
-                AND A차운송_시각 IS NOT NULL 
-                AND 투입_시각 IS NULL
-                
+                    AND A차운송_시각 IS NOT NULL 
+                    AND 투입_시각 IS NULL
                 ORDER BY 적재_순번 ASC
                 LIMIT 1
             """, (운행_ID,))
@@ -255,12 +251,10 @@ def zone_arrival_A(conn, cursor, 차량_ID='A-1000', 구역_ID='02'):
             JOIN 운행_택배 USING (택배_ID)
             SET 택배.현재_상태 = '투입됨',
                 운행_택배.투입_시각 = NOW()
-                
             WHERE 운행_택배.운행_ID = %s
-            AND 운행_택배.구역_ID = %s
-            AND 운행_택배.투입_시각 IS NULL
-            AND 택배.현재_상태 = 'A차운송중'
-
+                AND 운행_택배.구역_ID = %s
+                AND 운행_택배.투입_시각 IS NULL
+                AND 택배.현재_상태 = 'A차운송중'
             LIMIT 1
             """,
             (운행_ID, 구역_ID)
@@ -314,10 +308,8 @@ def B_destination():
             cur.execute("""
                 SELECT 구역_ID
                 FROM 구역
-                
                 WHERE 포화_여부 = 1 
-                AND 포화_시각 IS NOT NULL
-                
+                    AND 포화_시각 IS NOT NULL
                 ORDER BY 포화_시각 ASC
                 LIMIT 1
             """)
@@ -362,10 +354,8 @@ def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-2000'):
         cursor.execute("""
             SELECT 운행_ID
             FROM 운행_기록
-            
             WHERE 차량_ID = %s 
-            AND 운행_상태 = '운행중'
-            
+                AND 운행_상태 = '운행중'
             ORDER BY 운행_ID DESC
             LIMIT 1
         """, (차량_ID,))
@@ -381,11 +371,10 @@ def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-2000'):
             JOIN 운행_택배 USING (택배_ID)
             SET 택배.현재_상태 = 'B차운송중',
                 운행_택배.B차운송_시각 = NOW()
-                
             WHERE 운행_택배.운행_ID = %s
-            AND 운행_택배.구역_ID = %s
-            AND 택배.현재_상태 = '투입됨'
-            AND 운행_택배.B차운송_시각 IS NULL
+                AND 운행_택배.구역_ID = %s
+                AND 택배.현재_상태 = '투입됨'
+                AND 운행_택배.B차운송_시각 IS NULL
         """, (운행_ID, 구역_ID))
 
         conn.commit()
