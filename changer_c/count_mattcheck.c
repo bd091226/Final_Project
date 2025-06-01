@@ -136,11 +136,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                  "from db_access import get_connection, button_A\n"
                  "conn = get_connection()\n"
                  "cur = conn.cursor()\n"
-                 "button_A(cur, conn, %d, %d)\n"
+                 "button_A(cur, conn, %d, %s)\n"
                  "conn.close()\n"
                  "EOF",
                  count,
-                 1001 // 기존 운행_ID // 수정요청
+                 "A-1000" // 기존 운행_ID // 수정요청
         );
 
         // system() 호출하여 쉘에서 파이썬 스크립트 실행
@@ -252,6 +252,8 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                             if(next_zone && *next_zone)
                             {
                                 printf(" 다음 목적지 구역 : %s\n",next_zone);
+                                publish_zone(next_zone);
+
                             }
                         }
                     }
