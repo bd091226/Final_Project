@@ -157,9 +157,9 @@ def get_A_count(cursor, 차량_ID='A-1000'):
         print(f"❌ 적재 수량 조회 실패 (차량 {차량_ID}): {e}")
         return None
     
-# A차 A에서 출발했다는 신호를 수신 시
+# A차 QR에서 출발했다는 신호를 수신 시
 # 수정필요!!
-def departed_A(conn, cursor, 차량_ID='A-1000'):
+def departed_A(conn, cursor, 차량_ID):
     """
     A차가 출발했을 때:
     - '등록됨' 상태의 택배들을 'A차운송중'으로 변경
