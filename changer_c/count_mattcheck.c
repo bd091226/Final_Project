@@ -8,9 +8,10 @@
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "RaspberryPi_Container"            // 다른 클라이언트 ID 사용 권장
 #define TOPIC_COUNT "storage/count"                 // count 값 수신
-#define TOPIC_A_STARTPOINT "storage/startpoint"     // 출발지점 알림 수신용 토픽
+#define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
+#define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arried"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST "storage/dest"                 // 목적지 구역 송신 토픽
-#define TOPIC_A_ARRIVED "storage/arrived"           // 목적지 도착 메시지 수신 토픽
+#define TOPIC_A_DEST_ARRIVED "storage/arrived"           // 목적지 도착 메시지 수신 토픽
 #define TOPIC_A_HOME "storage/home"                 // A차 집으로 출발 메시지 송신 토픽
 #define QOS 1
 #define TIMEOUT 10000L
@@ -177,11 +178,9 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         }
     }
 
-    if(strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
+    if(strcmp(topicName, TOPIC_A_STARTPOINT_ARRIVED) == 0)
     {
-        if(strcmp(msgPayload,"출발지점 도착")==0)
-        {
-            // 차량_ID를 임의로 지정하여 나중에 변경
+        // 차량_ID를 임의로 지정하여 나중에 변경
             char *zone = A_destination("1000");
 
             if (zone && *zone)
@@ -195,104 +194,109 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                 publish_zone("02"); // 임의로 넣어놓음, 나중에 삭제 요청바람
                 printf("조회된 구역이 없습니다.\n");
             }
-        }
-        
+
     }
-
-    // 수신한 토픽이 storage/arrived일 경우
-    if (strcmp(topicName, TOPIC_A_ARRIVED) == 0)
+    if(strcmp(topicName, TOPIC_A_DEST_ARRIVED) == 0)
     {
-        // 페이로드가 "A차 목적지 도착" 문자열인지 확인
-        if (strcmp(msgPayload, "A차 목적지 도착") == 0)
+        // 도착 알림 수신 확인 메시지 터미널에 출력
+        printf("✅ A차가 목적지에 도착했습니다. 필요한 동작을 수행하세요.\n");
+        // 1) 초음파 센서 실행
+        float prev_distance = 0;
+        if (move_distance(chip, 0, &prev_distance))
         {
-            // 도착 알림 수신 확인 메시지 터미널에 출력
-            printf("✅ A차가 목적지에 도착했습니다. 필요한 동작을 수행하세요.\n");
-            // 1) 초음파 센서 실행
-            float prev_distance = 0;
-            if (move_distance(chip, 0, &prev_distance))
+            // 초음파 센서가 true 이면 zone_arrival_A() 호출 (DB에 도착 처리)
+            char cmd_zone[512];
+            snprintf(cmd_zone, sizeof(cmd_zone),
+                        "python3 - << 'EOF'\n"
+                        "from db_access import get_connection, zone_arrival_A\n"
+                        "conn = get_connection()\n"
+                        "cur = conn.cursor()\n"
+                        "zone_arrival_A(conn, cur, %d, '%s')\n"
+                        "conn.close()\n"
+                        "EOF",
+                        1,   // 차량_ID = 1 // 수정 요청
+                        "02" // 구역_ID ("02"로 고정, 추후 동적으로 변경) // 수정 요청
+            );
+
+            // system으로 zone_arrival_A발행
+            int ret_zone = system(cmd_zone);
+            if (ret_zone != 0)
             {
-                // 초음파 센서가 true 이면 zone_arrival_A() 호출 (DB에 도착 처리)
-                char cmd_zone[512];
-                snprintf(cmd_zone, sizeof(cmd_zone),
-                         "python3 - << 'EOF'\n"
-                         "from db_access import get_connection, zone_arrival_A\n"
-                         "conn = get_connection()\n"
-                         "cur = conn.cursor()\n"
-                         "zone_arrival_A(conn, cur, %d, '%s')\n"
-                         "conn.close()\n"
-                         "EOF",
-                         1,   // 차량_ID = 1 // 수정 요청
-                         "02" // 구역_ID ("02"로 고정, 추후 동적으로 변경) // 수정 요청
-                );
-
-                // system으로 zone_arrival_A발행
-                int ret_zone = system(cmd_zone);
-                if (ret_zone != 0)
-                {
-                    fprintf(stderr, "❌ zone_arrival_A() 실행 실패 (rc=%d)\n", ret_zone);
-                }
-                else
-                {
-                    printf("✅ zone_arrival_A() 실행 완료\n");
-                }
-
-                // 2) Python get_A_count() 호출 → 현재 적재 수량 받아오기
-                //    - get_A_count(cursor, 차량_ID='A-1000') 함수를 이용
-                //    - 결과가 0이면 "집으로 출발" 메시지를 MQTT로 송신
-                char cmd_count[1024];
-                snprintf(cmd_count, sizeof(cmd_count),
-                         "python3 - << 'EOF'\n"
-                         "from db_access import get_connection, get_A_count\n"
-                         "conn = get_connection()\n"
-                         "cur = conn.cursor()\n"
-                         "count = get_A_count(cur, '%s')\n"
-                         "print(count)\n"
-                         "conn.close()\n"
-                         "EOF",
-                         "A-1000" // 실제 차량_ID에 맞게 변경하세요 // 수정 요청
-                );
-
-                // popen()을 사용해 Python 출력(=적재 수량)을 읽기모드
-                FILE *fp = popen(cmd_count, "r");
-                if (fp == NULL)
-                {
-                    fprintf(stderr, "❌ get_A_count() popen 호출 실패\n");
-                }
-                else
-                {
-                    int load_count = -1;                    // 적재 수량 저장 변수
-                    if (fscanf(fp, "%d", &load_count) == 1) // popen 출력을 정수로 읽음
-                    {
-                        printf("🔍 현재 A차 적재 수량: %d\n", load_count); // 현재 적재 수량 출력
-                        if (load_count == 0)                               // 적재 수량이 0일때
-                        {
-                            // TOPIC_A_HOME으로 "집으로 출발" 송신
-                            publish_home_message();
-                        }
-                        else
-                        // 현재 적재 수량이 0이 아닐때는 A_destination함수를 호출하여 다음 구역 ID을 받아옴
-                        {
-                            const char *운행_ID = "1001"; // 수정 요청
-                            char *next_zone = A_destination(운행_ID);
-                            if (next_zone && *next_zone)
-                            {
-                                printf(" 다음 목적지 구역 : %s\n", next_zone);
-                            }
-                        }
-                    }
-                    else
-                    {
-                        fprintf(stderr, "❌ get_A_count() 출력 파싱 실패\n");
-                    }
-
-                    pclose(fp);
-                }
+                fprintf(stderr, "❌ zone_arrival_A() 실행 실패 (rc=%d)\n", ret_zone);
             }
             else
             {
-                printf("🔕 센서 조건 미충족 (거리 > 15cm 또는 변화 < 5cm), DB 호출 생략\n");
+                printf("✅ zone_arrival_A() 실행 완료\n");
+            }
+
+            // 2) Python get_A_count() 호출 → 현재 적재 수량 받아오기
+            //    - get_A_count(cursor, 차량_ID='A-1000') 함수를 이용
+            //    - 결과가 0이면 "집으로 출발" 메시지를 MQTT로 송신
+            char cmd_count[1024];
+            snprintf(cmd_count, sizeof(cmd_count),
+                        "python3 - << 'EOF'\n"
+                        "from db_access import get_connection, get_A_count\n"
+                        "conn = get_connection()\n"
+                        "cur = conn.cursor()\n"
+                        "count = get_A_count(cur, '%s')\n"
+                        "print(count)\n"
+                        "conn.close()\n"
+                        "EOF",
+                        "A-1000" // 실제 차량_ID에 맞게 변경하세요 // 수정 요청
+            );
+
+            // popen()을 사용해 Python 출력(=적재 수량)을 읽기모드
+            FILE *fp = popen(cmd_count, "r");
+            if (fp == NULL)
+            {
+                fprintf(stderr, "❌ get_A_count() popen 호출 실패\n");
+            }
+            else
+            {
+                int load_count = -1;                    // 적재 수량 저장 변수
+                if (fscanf(fp, "%d", &load_count) == 1) // popen 출력을 정수로 읽음
+                {
+                    printf("🔍 현재 A차 적재 수량: %d\n", load_count); // 현재 적재 수량 출력
+                    if (load_count == 0)                               // 적재 수량이 0일때
+                    {
+                        // TOPIC_A_HOME으로 "집으로 출발" 송신
+                        publish_home_message();
+                    }
+                    else
+                    // 현재 적재 수량이 0이 아닐때는 A_destination함수를 호출하여 다음 구역 ID을 받아옴
+                    {
+                        const char *운행_ID = "1000"; // 수정 요청
+                        char *next_zone = A_destination(운행_ID);
+                        if (next_zone && *next_zone)
+                        {
+                            printf(" 다음 목적지 구역 : %s\n", next_zone);
+                            publish_zone(next_zone);
+                        }
+                    }
+                }
+                else
+                {
+                    fprintf(stderr, "❌ get_A_count() 출력 파싱 실패\n");
+                }
+
+                pclose(fp);
             }
         }
+        else
+        {
+            printf("🔕 센서 조건 미충족 (거리 > 15cm 또는 변화 < 5cm), DB 호출 생략\n");
+        }
+    }
+   
+
+    // 수신한 토픽이 storage/arrived일 경우
+    // if (strcmp(topicName, TOPIC_A_DEST) == 0)
+    // {
+    //     // 페이로드가 "A차 목적지 도착" 문자열인지 확인
+    //     if (strcmp(msgPayload, "A차 목적지 도착") == 0)
+    //     {
+    //         
+    //     }
 
         // TOPIC_A_destination로 A차가 목적지로 출발했다는 메세지를 수신
         // if (strcmp(topicName, TOPIC_A_destination) == 0)
@@ -328,7 +332,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         MQTTClient_free(topicName);
 
         return 1;
-    }
+    
 }
 
 // 브로커와 연결 끊겼을 때 호출되는 콜백 함수
@@ -371,8 +375,11 @@ int main(int argc, char *argv[])
 
     // 구독할 토픽 등록
     MQTTClient_subscribe(client, TOPIC_COUNT, QOS);
-    MQTTClient_subscribe(client, TOPIC_A_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_DEST_ARRIVED, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_STARTPOINT_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
+    
 
     // 메시지 수신을 계속 대기 (무한 루프)
     while (1)
