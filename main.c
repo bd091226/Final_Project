@@ -56,9 +56,10 @@
 // MQTT 토픽
 //#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
 #define TOPIC_COUNT         "storage/count"       // 버튼 누른 횟수 전송용 토픽
-#define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 알림용 토픽 ("출발했습니다.")
+#define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
+#define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arried"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
-#define TOPIC_A_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
+#define TOPIC_A_DEST_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
 #define TOPIC_A_HOME        "storage/home"        // 집으로 복귀 알림용 토픽
 
 #define QOS             0       // QoS 레벨
@@ -118,7 +119,7 @@ void send_count() {
     sprintf(payload, "%d", count);
 
     if (publish_message(TOPIC_COUNT, payload) == MQTTCLIENT_SUCCESS) {
-        printf("[PUBLISH] Count %d → %s\n", count, TOPIC_COUNT);
+        printf("[송신] Count %d → %s\n", count, TOPIC_COUNT);
     }
 }
 void startpoint()
@@ -126,8 +127,8 @@ void startpoint()
     char msg[100];
     snprintf(msg, sizeof(msg), "출발지점 도착");
 
-    if (publish_message(TOPIC_A_STARTPOINT, msg) == MQTTCLIENT_SUCCESS) {
-        printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_STARTPOINT);
+    if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
+        printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);
     }
 }
 // 목적지로 출발했음을 알리는 메시지 발행
@@ -140,15 +141,15 @@ void startpoint()
 //     }
 // }
 
-// 목적지 도착 시 실행되는 함수
-// 흰색 LED를 끄고, MQTT로 "목적지 도착" 메시지 발행
-void send_arrived() {
+// 보관함 목적지 도착 시 실행되는 함수
+// MQTT로 "목적지 도착" 메시지 발행
+void dest_arrived() {
     const char* msg = "목적지 도착";
-    // 흰색 LED(line2) OFF
-    gpiod_line_set_value(line2, 0);
 
-    if (publish_message(TOPIC_A_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
-        printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_ARRIVED);
+    // 컨베이어벨트 작동
+
+    if (publish_message(TOPIC_A_DEST_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
+        printf("[송신] %s → %s\n", msg, TOPIC_A_DEST_ARRIVED);
     }
 }
 
@@ -171,39 +172,24 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     printf("[수신] %s → %s\n", topicName, msg);
 
-    // 목적지 출발 알림을 위한 처리
-    if (strcmp(topicName, TOPIC_A_DEST) == 0) {
+    if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
+    {
         // 빨강 LED(line1) ON → OFF
         gpiod_line_set_value(line1, 1);
-        sleep(2);
-        gpiod_line_set_value(line1, 0);
-        sleep(1);
-
-        // 하얀 LED(line2) ON (출발 준비 시그널)
-        gpiod_line_set_value(line2, 1);
-        sleep(5);
-        // 하얀 LED OFF
-        gpiod_line_set_value(line2, 0);
-
-        // "dest로 출발했음" 메시지 발행
-        //send_start_msg(msg);
-
-        // 목적지 도착 메시지 발행
-        send_arrived();
-
-        // 버튼 카운트 초기화
-        count = 1;
-    }
-    if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0 && start_sent == 0)
-    {
         sleep(3);
+        gpiod_line_set_value(line1, 0);
+        gpiod_line_set_value(line2, 1);
         startpoint();
         start_sent=1;
     }
-    // if(strcmp(topicName, TOPIC_A_DEST) == 0)
-    // {
-    //     send_arrived();
-    // }
+    if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
+    {
+        dest_arrived();
+    }
+    if(strcmp(topicName, TOPIC_A_HOME) == 0) // 이동해야하는 구역을 알려줌
+    {
+        printf("집으로 출발\n");
+    }
 
     // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
     MQTTClient_freeMessage(&message);
@@ -290,7 +276,7 @@ int main() {
 
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
-    //MQTTClient_subscribe(client, , QOS);
+    MQTTClient_subscribe(client, TOPIC_A_DEST_ARRIVED, QOS);
     
 
     // 9) 버튼의 마지막 상태
