@@ -1,4 +1,4 @@
-# ssh -i ~/Final_Project/kosta-final-aws-key-250519.pem ubuntu@ec2-13-125-155-221.ap-northeast-2.compute.amazonaws.com
+# ssh -i ~/Final_Project/kosta-final-aws-key-250519.pem ubuntu@ec2-13-209-8-231.ap-northeast-2.compute.amazonaws.com
 
 #!/usr/bin/env python3
 # db_access.py
