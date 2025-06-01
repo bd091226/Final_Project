@@ -100,20 +100,6 @@ def button_A(cursor, conn, count, 차량_ID):
             )
             print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
 
-        # 6. 최대 적재 도달 시 운행 상태 변경
-        # 이걸 출발하는 departed도 옮길지 고민필요
-        cursor.execute("""
-            SELECT 최대_적재_수량 FROM 차량 WHERE 차량_ID = %s
-        """, (차량_ID,))
-        result = cursor.fetchone()
-        if result and count == result[0]:
-            cursor.execute("""
-                UPDATE 운행_기록
-                SET 운행_시작 = NOW(), 운행_상태 = '운행중'
-                WHERE 운행_ID = %s
-            """, (운행_ID,))
-            print("🚚 최대 적재 도달 → 운행_기록 업데이트 완료 (운행중 상태)")
-
         conn.commit()
         print(운행_ID)
         return 운행_ID
@@ -142,24 +128,37 @@ def get_A_count(cursor, 차량_ID='A-1000'):
 # 수정필요!!
 def departed_A(conn, cursor, 차량_ID='A-1000'):
     """
-    A차가 A에서 출발했다는 신호를 수신 시:
-    - 해당 차량에 적재된 택배들의 상태를 'A차운송중'으로 변경
-    - 조건: 현재_상태가 '등록됨'인 택배만
+    A차가 출발했을 때:
+    - '등록됨' 상태의 택배들을 'A차운송중'으로 변경
+    - 차량의 '비운행중' 상태이지만 아직 출발하지 않은 운행(운행_시작 IS NULL)을 출발 처리
     """
     try:
+        # 1. 택배 상태 업데이트
         cursor.execute("""
             UPDATE 택배
             JOIN 운행_택배 USING (택배_ID)
             JOIN 운행_기록 USING (운행_ID)
             SET 택배.현재_상태 = 'A차운송중'
-            
             WHERE 운행_기록.차량_ID = %s
-            AND 택배.현재_상태 = '등록됨'
+                AND 택배.현재_상태 = '등록됨'
+                AND 운행_기록.운행_시작 IS NULL
+                AND 운행_기록.운행_상태 = '비운행중'
         """, (차량_ID,))
+
+        # 2. 운행 상태 '운행중' + 출발 시간 기록
+        cursor.execute("""
+            UPDATE 운행_기록
+            SET 운행_시작 = NOW(),
+                운행_상태 = '운행중'
+            WHERE 차량_ID = %s
+                AND 운행_상태 = '비운행중'
+                AND 운행_시작 IS NULL
+        """, (차량_ID,))
+
         conn.commit()
-        print(f"✅ 차량 {차량_ID} 택배 상태 'A차운송중'으로 업데이트 완료")
+        print(f"✅ 차량 {차량_ID} 출발 처리 완료 → 운행_시작 설정, 택배 상태 변경")
     except Exception as e:
-        print(f"❌ 상태 업데이트 실패 (차량 {차량_ID}): {e}")
+        print(f"❌ departed_A 실패 (차량 {차량_ID}): {e}")
         
 # A차 목적지 찾기
 def A_destination(운행_ID):
