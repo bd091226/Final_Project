@@ -55,11 +55,11 @@
 
 // MQTT 토픽
 //#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
-#define TOPIC_COUNT       "storage/count"       // 버튼 누른 횟수 전송용 토픽
-#define TOPIC_A_START     "storage/start"       // 출발 알림용 토픽 ("출발했습니다.")
-#define TOPIC_A_STARTDEST "storage/startdest"   // 목적지 출발 알림용 토픽
-#define TOPIC_A_ARRIVED   "storage/arrived"     // 목적지 도착 알림용 토픽
-#define TOPIC_A_HOME      "storage/home"        // 집으로 복귀 알림용 토픽
+#define TOPIC_COUNT         "storage/count"       // 버튼 누른 횟수 전송용 토픽
+#define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 알림용 토픽 ("출발했습니다.")
+#define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
+#define TOPIC_A_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
+#define TOPIC_A_HOME        "storage/home"        // 집으로 복귀 알림용 토픽
 
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
@@ -121,16 +121,24 @@ void send_count() {
         printf("[PUBLISH] Count %d → %s\n", count, TOPIC_COUNT);
     }
 }
-
-// 목적지로 출발했음을 알리는 메시지 발행
-void send_start_msg(const char* dest) {
+void startpoint()
+{
     char msg[100];
-    snprintf(msg, sizeof(msg), "%s로 출발했음", dest);
+    snprintf(msg, sizeof(msg), "출발지점 도착");
 
-    if (publish_message(TOPIC_A_START, msg) == MQTTCLIENT_SUCCESS) {
-        printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_START);
+    if (publish_message(TOPIC_A_STARTPOINT, msg) == MQTTCLIENT_SUCCESS) {
+        printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_STARTPOINT);
     }
 }
+// 목적지로 출발했음을 알리는 메시지 발행
+// void send_start_msg(const char* dest) {
+//     char msg[100];
+//     snprintf(msg, sizeof(msg), "%s로 출발했음", dest);
+
+//     if (publish_message(TOPIC_A_START, msg) == MQTTCLIENT_SUCCESS) {
+//         printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_START);
+//     }
+// }
 
 // 목적지 도착 시 실행되는 함수
 // 흰색 LED를 끄고, MQTT로 "목적지 도착" 메시지 발행
@@ -144,24 +152,27 @@ void send_arrived() {
     }
 }
 
+/************** */
 //수신하는 함수//
+/************* */
 
 // MQTT 연결 끊김 콜백
 void connlost(void *context, char *cause) {
     printf("Connection lost: %s\n", cause);
 }
-
+int start_sent = 0;
 // 메시지 수신 콜백: storage/startdest 토픽을 처리
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
     // 수신된 메시지를 문자열로 복사 (null-terminated)
+    
     char msg[message->payloadlen + 1];
     memcpy(msg, message->payload, message->payloadlen);
     msg[message->payloadlen] = '\0';
 
-    printf("[RECV] %s → %s\n", topicName, msg);
+    printf("[수신] %s → %s\n", topicName, msg);
 
     // 목적지 출발 알림을 위한 처리
-    if (strcmp(topicName, TOPIC_A_STARTDEST) == 0) {
+    if (strcmp(topicName, TOPIC_A_DEST) == 0) {
         // 빨강 LED(line1) ON → OFF
         gpiod_line_set_value(line1, 1);
         sleep(2);
@@ -175,7 +186,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         gpiod_line_set_value(line2, 0);
 
         // "dest로 출발했음" 메시지 발행
-        send_start_msg(msg);
+        //send_start_msg(msg);
 
         // 목적지 도착 메시지 발행
         send_arrived();
@@ -183,6 +194,16 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         // 버튼 카운트 초기화
         count = 1;
     }
+    if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0 && start_sent == 0)
+    {
+        sleep(3);
+        startpoint();
+        start_sent=1;
+    }
+    // if(strcmp(topicName, TOPIC_A_DEST) == 0)
+    // {
+    //     send_arrived();
+    // }
 
     // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
     MQTTClient_freeMessage(&message);
@@ -267,8 +288,10 @@ int main() {
 
     printf("MQTT connected. Waiting for button press...\n");
 
-    // 8) 목적지 출발 토픽 구독
-    MQTTClient_subscribe(client, TOPIC_A_STARTDEST, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
+    //MQTTClient_subscribe(client, , QOS);
+    
 
     // 9) 버튼의 마지막 상태
     last_btn_value = gpiod_line_get_value(line_btn);
