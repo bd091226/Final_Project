@@ -61,6 +61,7 @@
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
 #define TOPIC_A_DEST_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
 #define TOPIC_A_HOME        "storage/home"        // 집으로 복귀 알림용 토픽
+#define TOPIC_A_HOME_ARRIVED   "storage/home_arrived" // 
 
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
@@ -125,31 +126,23 @@ void send_count() {
 void startpoint()
 {
     char msg[100];
-    snprintf(msg, sizeof(msg), "출발지점 도착");
+    snprintf(msg, sizeof(msg), "A차 출발지점 도착");
 
     if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
         printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);
     }
 }
-// 목적지로 출발했음을 알리는 메시지 발행
-// void send_start_msg(const char* dest) {
-//     char msg[100];
-//     snprintf(msg, sizeof(msg), "%s로 출발했음", dest);
-
-//     if (publish_message(TOPIC_A_START, msg) == MQTTCLIENT_SUCCESS) {
-//         printf("[PUBLISH] %s → %s\n", msg, TOPIC_A_START);
-//     }
-// }
 
 // 보관함 목적지 도착 시 실행되는 함수
 // MQTT로 "목적지 도착" 메시지 발행
-void dest_arrived() {
-    const char* msg = "목적지 도착";
+void dest_arrived(const char *dest) {
+    char msg_buffer[128];
+    snprintf(msg_buffer,sizeof(msg_buffer),"%s 도착",dest);
 
     // 컨베이어벨트 작동
 
-    if (publish_message(TOPIC_A_DEST_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
-        printf("[송신] %s → %s\n", msg, TOPIC_A_DEST_ARRIVED);
+    if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+        printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
     }
 }
 
@@ -184,7 +177,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     }
     if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
     {
-        dest_arrived();
+        dest_arrived(msg);
     }
     if(strcmp(topicName, TOPIC_A_HOME) == 0) // 이동해야하는 구역을 알려줌
     {
