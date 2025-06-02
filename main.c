@@ -65,9 +65,10 @@
 #define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
 #define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arrived"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
-#define TOPIC_A_DEST_ARRIVED     "storage/arrived"     // 목적지 도착 알림용 토픽
-#define TOPIC_A_HOME        "storage/home"        // 집으로 복귀 알림용 토픽
-#define TOPIC_A_HOME_ARRIVED   "storage/home_arrived" // 
+#define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
+#define TOPIC_A_HOME        "storage/home"        // 출발지점으로 다시 돌아가라는 명령을 받는 토픽
+#define TOPIC_A_HOME_ARRIVED        "storage/home_arrived"        // 출발지점에 다시 도착을 했다는 것을 송신하기 위한 토픽
+
 
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
@@ -121,10 +122,6 @@ void start_python_script() {
     python_pid = pid;
     printf("[INFO] Started Python script (PID=%d)\n", python_pid);
 }
-// keepRunning을 0으로 설정하여 메인 루프 종료
-// void intHandler(int dummy) {
-//     keepRunning = 0;
-// }
 
 //토픽과 메시지를 통신을 한 뒤 완료와 대기 후 결과 코드를 반환하여 
 // 성공인지 실패인지를 구분하는 메시지가 출력되는 함수
@@ -184,16 +181,26 @@ void dest_arrived(const char *dest) {
     }
 }
 
-/************** */
-//수신하는 함수//
-/************* */
+// A차에 적재된 물품이 없는 경우 다시 출발지점으로 돌아와서 도착을 함을 송신
+void empty()
+{
+    gpiod_line_set_value(line2, 0);
+    char msg[100];
+    snprintf(msg, sizeof(msg), "A차 출발지점 도착");
 
+    if (publish_message(TOPIC_A_HOME_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
+        printf("[송신] %s → %s\n", msg, TOPIC_A_HOME_ARRIVED);
+    }
+}
 // MQTT 연결 끊김 콜백
 void connlost(void *context, char *cause) {
     printf("Connection lost: %s\n", cause);
 }
+
 int start_sent = 0;
-// 메시지 수신 콜백: storage/startdest 토픽을 처리
+/************** */
+//수신하는 함수//
+/************* */
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message) {
     // 수신된 메시지를 문자열로 복사 (null-terminated)
     
@@ -217,9 +224,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     {
         dest_arrived(msg);
     }
-    if(strcmp(topicName, TOPIC_A_HOME) == 0) // 이동해야하는 구역을 알려줌
+    if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
     {
-        printf("집으로 출발\n");
+        sleep(3);
+        empty();
+
     }
 
     // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
@@ -248,12 +257,6 @@ int main() {
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
     start_python_script();
 
-    // 3) 아래부터는 기존 main.c의 초기화 코드 (GPIO, MQTT 연결 등)
-    // chip = gpiod_chip_open(GPIO_CHIP);
-    // if (!chip) {
-    //     perror("gpiod_chip_open");
-    //     return EXIT_FAILURE;
-    // }
     // 2) 모터 제어용 GPIO (IN1, IN2)
     line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
     line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
