@@ -23,23 +23,24 @@
       "miDebuggerPath": "/usr/bin/gdb"
     },
     {
-      "name": "C/C++ Runner: Debug Session",
+      "name": "Run moter",
       "type": "cppdbg",
       "request": "launch",
       "args": [],
       "stopAtEntry": false,
       "externalConsole": false,
-      "cwd": "/home/pi/Final_Project",
-      "program": "/home/pi/Final_Project/build/Debug/outDebug",
+      "cwd": "/home/pi/Final_Project/find_spot",
+      "program": "/home/pi/Final_Project/find_spot/motor_test",
       "MIMode": "gdb",
-      "miDebuggerPath": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
       "setupCommands": [
         {
           "description": "Enable pretty-printing for gdb",
           "text": "-enable-pretty-printing",
           "ignoreFailures": true
         }
-      ]
+      ],
+      "preLaunchTask": "build moter"
     }
   ]
 }

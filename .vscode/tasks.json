@@ -17,6 +17,24 @@
             "problemMatcher": [
                 "$gcc"
             ]
+        },
+        {
+            "label": "build moter",
+            "type": "shell",
+            "command": "gcc",
+            "args": [
+                "-g",
+                "/home/pi/Final_Project/find_spot/motor_test.c",
+                "-o",
+                "/home/pi/Final_Project/find_spot/motor_test",
+                "-lgpiod",
+                "-lpaho-mqtt3c",
+                "-lwiringPi"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ]
         }
     ]
 }
