@@ -6,6 +6,8 @@ import threading
 from flask import Flask, Response, render_template_string
 from picamera2 import Picamera2
 import time
+import signal
+import sys
 
 # html 구현
 HTML_PAGE = """
@@ -192,7 +194,14 @@ def video_feed():
         mimetype='multipart/x-mixed-replace; boundary=frame'
     )
 
+# (선택사항) SIGTERM 핸들러: 종료 시 카메라·스레드를 정리하고 싶은 경우
+def handle_sigterm(signum, frame):
+    print("[INFO] Received SIGTERM, shutting down Flask...")
+    # picam2.stop() 등 필요한 정리 코드 추가 가능
+    sys.exit(0)
 if __name__ == '__main__':
+    # SIGTERM 핸들러 등록 (선택)
+    signal.signal(signal.SIGTERM, handle_sigterm)
     # ArUco 인식 + 포즈 추정 스레드 띄우기
     t = threading.Thread(target=detect_and_estimate, daemon=True)
     t.start()

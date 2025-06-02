@@ -49,9 +49,15 @@
 #include <gpiod.h>
 #include <MQTTClient.h>
 #include <unistd.h>  // sleep, usleep
+#include <sys/types.h>   // pid_t
+#include <sys/wait.h>    // waitpid
 
 #define ADDRESS         "tcp://broker.hivemq.com:1883"  // 공용 MQTT 브로커 예시 (변경 가능)
 #define CLIENTID        "RaspberryPi_A"
+
+#define PYTHON_SCRIPT_PATH  "/home/pi/Final_Project/camera.py"
+#define PYTHON_BIN          "python3"
+
 
 // MQTT 토픽
 //#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
@@ -83,10 +89,42 @@ int count = 1;                         // 버튼 누름 횟수
 // LED(세 가지 색)를 제어하기 위한 GPIO
 struct gpiod_line *line1, *line2, *line3;
 
-// keepRunning을 0으로 설정하여 메인 루프 종료
+
+//volatile sig_atomic_t keepRunning = 1;
+pid_t python_pid = -1;   // 파이썬 프로세스 PID 저장
+
+// Ctrl+C 시그널 핸들러
 void intHandler(int dummy) {
     keepRunning = 0;
+    // 자식(파이썬) 프로세스가 살아있으면 종료시도
+    if (python_pid > 0) {
+        kill(python_pid, SIGTERM);
+        // 종료될 때까지 잠깐 기다려 주는 게 안전
+        waitpid(python_pid, NULL, 0);
+    }
 }
+// Python 스크립트를 새 프로세스로 실행
+void start_python_script() {
+    pid_t pid = fork();
+    if (pid < 0) {
+        perror("fork failed");
+        return;
+    }
+    if (pid == 0) {
+        // 자식 프로세스: execlp로 파이썬 스크립트 실행
+        execlp(PYTHON_BIN, PYTHON_BIN, PYTHON_SCRIPT_PATH, (char*)NULL);
+        // execlp가 실패하면 아래 코드가 실행됨
+        perror("execlp failed");
+        exit(EXIT_FAILURE);
+    }
+    // 부모 프로세스: child PID 저장
+    python_pid = pid;
+    printf("[INFO] Started Python script (PID=%d)\n", python_pid);
+}
+// keepRunning을 0으로 설정하여 메인 루프 종료
+// void intHandler(int dummy) {
+//     keepRunning = 0;
+// }
 
 //토픽과 메시지를 통신을 한 뒤 완료와 대기 후 결과 코드를 반환하여 
 // 성공인지 실패인지를 구분하는 메시지가 출력되는 함수
@@ -207,6 +245,15 @@ int main() {
         return EXIT_FAILURE;
     }
 
+    // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
+    start_python_script();
+
+    // 3) 아래부터는 기존 main.c의 초기화 코드 (GPIO, MQTT 연결 등)
+    // chip = gpiod_chip_open(GPIO_CHIP);
+    // if (!chip) {
+    //     perror("gpiod_chip_open");
+    //     return EXIT_FAILURE;
+    // }
     // 2) 모터 제어용 GPIO (IN1, IN2)
     line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
     line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
@@ -320,6 +367,6 @@ int main() {
 
     // GPIO 칩 닫기
     gpiod_chip_close(chip);
-
+    printf("Program terminated.\n");
     return 0;
 }
