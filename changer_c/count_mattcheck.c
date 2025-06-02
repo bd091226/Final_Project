@@ -11,8 +11,9 @@
 #define TOPIC_A_STARTPOINT "storage/startpoint"                 // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
 #define TOPIC_A_STARTPOINT_ARRIVED "storage/startpoint_arrived" // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST "storage/dest"                             // 목적지 구역 송신 토픽
-#define TOPIC_A_DEST_ARRIVED "storage/arrived"                  // 목적지 도착 메시지 수신 토픽
-#define TOPIC_A_HOME "storage/home"                             // A차 집으로 출발 메시지 송신 토픽
+#define TOPIC_A_DEST_ARRIVED "storage/dest_arrived"             // 목적지 도착 메시지 수신 토픽
+#define TOPIC_A_HOME "storage/home"    
+#define TOPIC_A_HOME_ARRIVED        "storage/home_arrived"       // A차 집으로 출발 메시지 송신 토픽
 #define QOS 1
 #define TIMEOUT 10000L
 
@@ -22,7 +23,7 @@ volatile int connected = 0; // 연결 여부 확인
 void startpoint()
 {
     MQTTClient_message startMsg = MQTTClient_message_initializer;
-    const char *startPayload = "출발지점으로 출발";
+    const char *startPayload = "A차 출발지점으로 출발";
     startMsg.payload = (char *)startPayload;
     startMsg.payloadlen = (int)strlen(startPayload);
     startMsg.qos = QOS;
@@ -108,7 +109,7 @@ void publish_zone(const char *구역_ID)
 void publish_home_message()
 {
     MQTTClient_message pubmsg = MQTTClient_message_initializer; // MQTT 메시지 초기화
-    const char *payload = "집으로 출발";                        // 송신할 문자열
+    const char *payload = "출발지점으로 출발";                        // 송신할 문자열
 
     // pubmsg 구조체에 페이로드 및 속성 설정
     pubmsg.payload = (char *)payload;
@@ -117,7 +118,8 @@ void publish_home_message()
     pubmsg.retained = 0;
 
     MQTTClient_deliveryToken token; // 송신 완료 토큰
-    // "집으로 출발" 송신
+    
+    // "출발지점으로 출발" 송신
     int rc = MQTTClient_publishMessage(client, TOPIC_A_HOME, &pubmsg, &token);
     if (rc == MQTTCLIENT_SUCCESS)
     {
@@ -143,7 +145,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     msgPayload[message->payloadlen] = '\0'; // 마지막에 널 종료 문자 추가
 
     // 수신된 내용 터미널에 출력
-    printf("메시지 수신: [%s] → %s\n", topicName, msgPayload);
+    printf("[수신]: [%s] → %s\n", topicName, msgPayload);
 
     // 수신한 토픽이 storage/count일 경우
     if (strcmp(topicName, TOPIC_COUNT) == 0)
@@ -317,6 +319,13 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         {
             printf("🔕 센서 조건 미충족 (거리 <= 10cm), DB 호출 생략\n");
         }
+    }
+
+    if(strcmp(topicName,TOPIC_A_HOME_ARRIVED)==0)
+    {
+        // 처리할 내용을 추가 해야함
+        // 아루코 마커 인식을 해서 오른쪽으로 이동을 할것인지 아니면 직진을 할것인지 동작 구현
+        
     }
 
     MQTTClient_freeMessage(&message);
