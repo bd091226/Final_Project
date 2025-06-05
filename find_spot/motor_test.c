@@ -7,6 +7,7 @@
 #include <signal.h>
 #include <sys/time.h>
 #include "mpu6050.h"
+#include <stdlib.h>
 
 #define AIN1 22
 #define AIN2 27
@@ -18,6 +19,9 @@
 #define GYRO_NOISE_THRESHOLD 0.1f
 #define ACCEL_NOISE_THRESHOLD 0.02f
 #define MAX_FORWARD_TIME_US 3000000
+
+void motor_go();
+void motor_stop();
 
 typedef enum
 {
@@ -53,21 +57,39 @@ const char *dir_name(Direction d)
     }
 }
 
-void print_acceleration_status(int duration_ms)
+void get_average_acceleration(int duration_ms, float* ax_out, float* ay_out, float* az_out)
 {
     float ax, ay, az;
+    float sum_ax = 0.0f, sum_ay = 0.0f, sum_az = 0.0f;
+    int count = 0;
     int elapsed = 0;
+
     while (elapsed < duration_ms)
     {
         if (get_acceleration(&ax, &ay, &az) == 0)
         {
-            float a = sqrt(ax * ax + ay * ay);
-            if (a < ACCEL_NOISE_THRESHOLD)
-                a = 0.0f;
-            printf("📡 전진 중 가속도: a=%.3f (ax=%.3f, ay=%.3f)\n", a, ax, ay);
+            printf("📡 전진 중 가속도: ax=%.3f, ay=%.3f, az=%.3f\n", ax, ay, az);
+            sum_ax += ax;
+            sum_ay += ay;
+            sum_az += az;
+            count++;
         }
-        usleep(100000);
+        usleep(100000); // 100ms
         elapsed += 100;
+    }
+
+    if (count > 0)
+    {
+        *ax_out = sum_ax / count;
+        *ay_out = sum_ay / count;
+        *az_out = sum_az / count;
+    }
+    else
+    {
+        *ax_out = 0.0f;
+        *ay_out = 0.0f;
+        *az_out = 0.0f;
+        printf("⚠️ 센서 측정 실패 - 평균 계산 안됨\n");
     }
 }
 
@@ -95,36 +117,73 @@ float accumulate_angle_during_rotation(int duration_ms)
     return angle;
 }
 
-void move_forward_cm(float cm, float time_per_cm_us)
+void move_forward_by_acceleration(float target_cm)
 {
-    float duration_us = cm * time_per_cm_us;
-    if (duration_us > MAX_FORWARD_TIME_US)
-    {
-        printf("⚠️ 이동 시간이 너무 김. 제한 적용됨 (%.0fμs → %dμs)\n", duration_us, MAX_FORWARD_TIME_US);
-        duration_us = MAX_FORWARD_TIME_US;
-    }
-    motor_go();
-    print_acceleration_status((int)(duration_us / 1000));
-    usleep((int)duration_us);
-    motor_stop();
+    float ax, ay, az;
+    float vx = 0.0f, vy = 0.0f;
+    float x = 0.0f, y = 0.0f;
 
+    int log_interval = 100; // 100ms
+    int time_since_log = 0;
+
+    struct timeval prev, now;
+    gettimeofday(&prev, NULL);
+
+    get_average_acceleration(500, &ax, &ay, &az);  // 🔁 최초 평균값 측정
+    ax *= 9.81f;  // G → m/s²
+    ay *= 9.81f;
+
+    vx += ax * 0.1f;  // 초깃값 보정 (선택)
+    vy += ay * 0.1f;
+
+    motor_go();
+    usleep(100000);
+    gettimeofday(&now, NULL);
+    while (1)
+    {
+        float dt = (now.tv_sec - prev.tv_sec) + (now.tv_usec - prev.tv_usec) / 1000000.0f;
+        prev = now;
+
+        if (get_acceleration(&ax, &ay, &az) == 0)
+        {
+            // 노이즈 제거
+            if (fabs(ax) < ACCEL_NOISE_THRESHOLD) ax = 0.0f;
+            if (fabs(ay) < ACCEL_NOISE_THRESHOLD) ay = 0.0f;
+
+            // 속도 적분
+            vx += ax * dt;
+            vy += ay * dt;
+
+            // 거리 적분
+            x += vx * dt;
+            y += vy * dt;
+
+            float distance_cm = sqrt(x * x + y * y) * 100.0f; // m → cm
+
+            if (time_since_log >= log_interval)
+            {
+                printf("📏 누적 거리: %.2fcm, 속도 vx=%.3f, vy=%.3f\n", distance_cm, vx, vy);
+                time_since_log = 0;
+            }
+
+            if (distance_cm >= target_cm)
+                break;
+        }
+
+        usleep(5000); // 5ms 대기
+        time_since_log += (int)(dt * 1000);
+    }
+
+    // 위치 갱신
     switch (pos.dir)
     {
-    case NORTH:
-        pos.y += round(cm / 30.0);
-        break;
-    case EAST:
-        pos.x += round(cm / 30.0);
-        break;
-    case SOUTH:
-        pos.y -= round(cm / 30.0);
-        break;
-    case WEST:
-        pos.x -= round(cm / 30.0);
-        break;
+    case NORTH: pos.y += round(target_cm / 30.0); break;
+    case EAST:  pos.x += round(target_cm / 30.0); break;
+    case SOUTH: pos.y -= round(target_cm / 30.0); break;
+    case WEST:  pos.x -= round(target_cm / 30.0); break;
     }
-
-    printf("📍 현재 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
+    get_acceleration(&ax, &ay, &az);
+    printf("📍 최종 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
 }
 
 float average_speed_calibration(int trials)
@@ -237,13 +296,23 @@ int main()
     }
 
     motor_setup();
+    move_forward_by_acceleration(30.0f);
+    usleep(3000000);
+    motor_stop();
+    // // usleep(500000); // 500ms = 0.5초
+    // // rotate_left_90();
+    // // motor_stop();
+    // // usleep(500000); // 500ms = 0.5초
+    // // move_forward_by_acceleration(30.0f);
 
-    float time_per_cm_us = average_speed_calibration(3);
+    // printf("🎯 최종 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
+    // return 0;
+    
 
-    move_forward_cm(28.0f, time_per_cm_us);
-    rotate_right_90();
-    move_forward_cm(30.0f, time_per_cm_us);
-
-    printf("🎯 최종 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
-    return 0;
+    ///////////////////////////////////////////////////////////////
+    // go 함수 되는지 확인용 코드
+    // motor_setup();
+    // motor_go();
+    // usleep(3000000);
+    // motor_stop();
 }
