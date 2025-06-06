@@ -1,14 +1,18 @@
+////나중에 가속도랑 쓸 코드
+
+
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <math.h>
-#include <time.h>
-#include <wiringPi.h>
-#include <softPwm.h>
 #include <signal.h>
 #include <sys/time.h>
-#include "mpu6050.h"
-#include <stdlib.h>
 
+#include <wiringPi.h>
+#include <softPwm.h>
+#include "imu_wrapper.h"  // RTIMULib2 C++ 래퍼 헤더
+
+//=============== 모터 핀 정의 ================
 #define AIN1 22
 #define AIN2 27
 #define PWMA 18
@@ -16,197 +20,162 @@
 #define BIN1 25
 #define BIN2 24
 #define PWMB 23
-#define GYRO_NOISE_THRESHOLD 0.1f
-#define ACCEL_NOISE_THRESHOLD 0.02f
-#define MAX_FORWARD_TIME_US 3000000
 
-void motor_go();
-void motor_stop();
-
-typedef enum
-{
+//=============== 전역 <격자 위치·방향> ================
+typedef enum {
     NORTH = 0,
-    EAST = 1,
+    EAST  = 1,
     SOUTH = 2,
-    WEST = 3
+    WEST  = 3
 } Direction;
 
-typedef struct
-{
+typedef struct {
     int x;
     int y;
     Direction dir;
 } Position;
 
-Position pos = {0, 0, NORTH};
+// 초기 위치 (0,0), 방향 NORTH
+static Position pos = {0, 0, NORTH};
 
-const char *dir_name(Direction d)
-{
-    switch (d)
-    {
-    case NORTH:
-        return "NORTH";
-    case EAST:
-        return "EAST";
-    case SOUTH:
-        return "SOUTH";
-    case WEST:
-        return "WEST";
-    default:
-        return "UNKNOWN";
+static const char *dir_name(Direction d) {
+    switch (d) {
+        case NORTH: return "NORTH";
+        case EAST:  return "EAST";
+        case SOUTH: return "SOUTH";
+        case WEST:  return "WEST";
+        default:    return "UNKNOWN";
     }
 }
 
-void get_average_acceleration(int duration_ms, float* ax_out, float* ay_out, float* az_out)
-{
-    float ax, ay, az;
-    float sum_ax = 0.0f, sum_ay = 0.0f, sum_az = 0.0f;
-    int count = 0;
-    int elapsed = 0;
+//=============== 상수: 시간 기반 전진 ================
+#define TIME_PER_CM_US 100500UL  // 1 cm당 약 100.5 ms
+#define FORWARD_DIST_CM 30.0f
 
-    while (elapsed < duration_ms)
-    {
-        if (get_acceleration(&ax, &ay, &az) == 0)
-        {
-            printf("📡 전진 중 가속도: ax=%.3f, ay=%.3f, az=%.3f\n", ax, ay, az);
-            sum_ax += ax;
-            sum_ay += ay;
-            sum_az += az;
-            count++;
-        }
-        usleep(100000); // 100ms
-        elapsed += 100;
-    }
-
-    if (count > 0)
-    {
-        *ax_out = sum_ax / count;
-        *ay_out = sum_ay / count;
-        *az_out = sum_az / count;
-    }
-    else
-    {
-        *ax_out = 0.0f;
-        *ay_out = 0.0f;
-        *az_out = 0.0f;
-        printf("⚠️ 센서 측정 실패 - 평균 계산 안됨\n");
-    }
+//=============== 모터 제어 함수 ================
+static void motor_go() {
+    digitalWrite(AIN1, LOW);
+    digitalWrite(AIN2, HIGH);
+    digitalWrite(BIN1, LOW);
+    digitalWrite(BIN2, HIGH);
+    softPwmWrite(PWMA, 50);
+    softPwmWrite(PWMB, 50);
 }
 
-float accumulate_angle_during_rotation(int duration_ms)
-{
-    float gx, gy, gz;
-    float angle = 0.0f;
-    struct timeval prev, now;
-    gettimeofday(&prev, NULL);
-    int elapsed = 0;
-    while (elapsed < duration_ms)
-    {
-        gettimeofday(&now, NULL);
-        float dt = (now.tv_sec - prev.tv_sec) + (now.tv_usec - prev.tv_usec) / 1000000.0f;
-        prev = now;
-        if (get_gyroscope(&gx, &gy, &gz) == 0)
-        {
-            if (fabs(gz) < GYRO_NOISE_THRESHOLD)
-                gz = 0.0f;
-            angle += gz * dt;
+static void motor_stop() {
+    digitalWrite(AIN1, LOW);
+    digitalWrite(AIN2, LOW);
+    digitalWrite(BIN1, LOW);
+    digitalWrite(BIN2, LOW);
+    softPwmWrite(PWMA, 0);
+    softPwmWrite(PWMB, 0);
+}
+
+static void motor_right() {
+    digitalWrite(AIN1, LOW);
+    digitalWrite(AIN2, HIGH);
+    digitalWrite(BIN1, HIGH);
+    digitalWrite(BIN2, LOW);
+    softPwmWrite(PWMA, 50);
+    softPwmWrite(PWMB, 50);
+}
+
+static void motor_left() {
+    digitalWrite(AIN1, HIGH);
+    digitalWrite(AIN2, LOW);
+    digitalWrite(BIN1, LOW);
+    digitalWrite(BIN2, HIGH);
+    softPwmWrite(PWMA, 50);
+    softPwmWrite(PWMB, 50);
+}
+
+//=============== SIGINT 핸들러 ================
+static void handle_sigint(int sig) {
+    printf("\n🛑 인터럽트 발생 - 모터 정지 후 종료합니다.\n");
+    motor_stop();
+    exit(0);
+}
+
+//=============== 회전: IMU 기반 90° 우회전 ================
+static void rotate_right_90_imu() {
+    printf("↩ 우회전 시작 (IMU 제어)\n");
+
+    float initialYaw = imu_getYaw();  // IMU에서 현재 yaw(라디안) 읽기
+
+    motor_right();
+
+    const float TARGET_RAD = M_PI / 2.0f;                // 90°
+    const float YAW_TOLERANCE = 1.5f * (M_PI / 180.0f);  // ±1.5°
+
+    while (1) {
+        float currentYaw = imu_getYaw();
+        float deltaYaw = currentYaw - initialYaw;
+        // [–π, +π] 범위로 wrap
+        if (deltaYaw >  M_PI)   deltaYaw -= 2.0f * M_PI;
+        if (deltaYaw < -M_PI)   deltaYaw += 2.0f * M_PI;
+
+        // 우회전 방향은 deltaYaw가 양수로 증가
+        if (deltaYaw >= (TARGET_RAD - YAW_TOLERANCE)) {
+            break;
         }
         usleep(5000);
-        elapsed += (int)(dt * 1000);
-    }
-    return angle;
-}
-
-void move_forward_by_acceleration(float target_cm)
-{
-    float ax, ay, az;
-    float vx = 0.0f, vy = 0.0f;
-    float x = 0.0f, y = 0.0f;
-
-    int log_interval = 100; // 100ms
-    int time_since_log = 0;
-
-    struct timeval prev, now;
-    gettimeofday(&prev, NULL);
-
-    get_average_acceleration(500, &ax, &ay, &az);  // 🔁 최초 평균값 측정
-    ax *= 9.81f;  // G → m/s²
-    ay *= 9.81f;
-
-    vx += ax * 0.1f;  // 초깃값 보정 (선택)
-    vy += ay * 0.1f;
-
-    motor_go();
-    usleep(100000);
-    gettimeofday(&now, NULL);
-    while (1)
-    {
-        float dt = (now.tv_sec - prev.tv_sec) + (now.tv_usec - prev.tv_usec) / 1000000.0f;
-        prev = now;
-
-        if (get_acceleration(&ax, &ay, &az) == 0)
-        {
-            // 노이즈 제거
-            if (fabs(ax) < ACCEL_NOISE_THRESHOLD) ax = 0.0f;
-            if (fabs(ay) < ACCEL_NOISE_THRESHOLD) ay = 0.0f;
-
-            // 속도 적분
-            vx += ax * dt;
-            vy += ay * dt;
-
-            // 거리 적분
-            x += vx * dt;
-            y += vy * dt;
-
-            float distance_cm = sqrt(x * x + y * y) * 100.0f; // m → cm
-
-            if (time_since_log >= log_interval)
-            {
-                printf("📏 누적 거리: %.2fcm, 속도 vx=%.3f, vy=%.3f\n", distance_cm, vx, vy);
-                time_since_log = 0;
-            }
-
-            if (distance_cm >= target_cm)
-                break;
-        }
-
-        usleep(5000); // 5ms 대기
-        time_since_log += (int)(dt * 1000);
     }
 
-    // 위치 갱신
-    switch (pos.dir)
-    {
-    case NORTH: pos.y += round(target_cm / 30.0); break;
-    case EAST:  pos.x += round(target_cm / 30.0); break;
-    case SOUTH: pos.y -= round(target_cm / 30.0); break;
-    case WEST:  pos.x -= round(target_cm / 30.0); break;
-    }
-    get_acceleration(&ax, &ay, &az);
-    printf("📍 최종 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
-}
-
-float average_speed_calibration(int trials)
-{
-    float average_time_per_cm = 100000.0f;
-    printf("✅ 보정 생략: 20cm 이동 기준으로 %.1f μs/cm 사용\n", average_time_per_cm);
-    return average_time_per_cm;
-}
-
-void rotate_right_dir()
-{
+    motor_stop();
     pos.dir = (pos.dir + 1) % 4;
-    printf("↩ 방향 전환: %s\n", dir_name(pos.dir));
+    printf("📐 우회전 완료 (~90°). 방향: %s\n", dir_name(pos.dir));
 }
 
-void rotate_left_dir()
-{
+//=============== 회전: IMU 기반 90° 좌회전 ================
+static void rotate_left_90_imu() {
+    printf("↪ 좌회전 시작 (IMU 제어)\n");
+
+    float initialYaw = imu_getYaw();
+
+    motor_left();
+
+    const float TARGET_RAD = M_PI / 2.0f;
+    const float YAW_TOLERANCE = 1.5f * (M_PI / 180.0f);
+
+    while (1) {
+        float currentYaw = imu_getYaw();
+        float deltaYaw = currentYaw - initialYaw;
+        if (deltaYaw >  M_PI)   deltaYaw -= 2.0f * M_PI;
+        if (deltaYaw < -M_PI)   deltaYaw += 2.0f * M_PI;
+
+        // 좌회전 방향은 deltaYaw가 음수로 내려감
+        if (deltaYaw <= -(TARGET_RAD - YAW_TOLERANCE)) {
+            break;
+        }
+        usleep(5000);
+    }
+
+    motor_stop();
     pos.dir = (pos.dir + 3) % 4;
-    printf("↪ 방향 전환: %s\n", dir_name(pos.dir));
+    printf("📐 좌회전 완료 (~90°). 방향: %s\n", dir_name(pos.dir));
 }
 
-void motor_setup()
-{
+//=============== 전진: 시간 기반 제어 ================
+static void move_forward_by_time(float target_cm) {
+    unsigned long duration_us = (unsigned long)roundf(target_cm * TIME_PER_CM_US);
+    printf("▶ 전진 시작: 목표 %.2f cm, 약 %lu μs 동안 전진\n", target_cm, duration_us);
+    motor_go();
+    usleep(duration_us);
+    motor_stop();
+
+    int grid_steps = (int)roundf(target_cm / 30.0f);
+    switch (pos.dir) {
+        case NORTH: pos.y += grid_steps; break;
+        case EAST:  pos.x += grid_steps; break;
+        case SOUTH: pos.y -= grid_steps; break;
+        case WEST:  pos.x -= grid_steps; break;
+    }
+    printf("📍 전진 완료(시간 제어). 격자=(%d,%d), 방향=%s\n",
+           pos.x, pos.y, dir_name(pos.dir));
+}
+
+//=============== 모터 셋업 ================
+static void setup_motors() {
     wiringPiSetupGpio();
     pinMode(AIN1, OUTPUT);
     pinMode(AIN2, OUTPUT);
@@ -216,103 +185,40 @@ void motor_setup()
     softPwmCreate(PWMB, 0, 100);
 }
 
-void motor_go()
-{
-    printf("➡ 전진\n");
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-void motor_stop()
-{
-    printf("■ 정지\n");
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 0);
-    softPwmWrite(PWMB, 0);
-}
-
-void motor_right()
-{
-    printf("↩ 우회전\n");
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, HIGH);
-    digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-void motor_left()
-{
-    printf("↪ 좌회전\n");
-    digitalWrite(AIN1, HIGH);
-    digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-void rotate_right_90()
-{
-    motor_right();
-    float angle = accumulate_angle_during_rotation(1500);
-    motor_stop();
-    rotate_right_dir();
-    printf("📐 회전 누적 각도: %.2f도 (우)\n", angle);
-}
-
-void rotate_left_90()
-{
-    motor_left();
-    float angle = accumulate_angle_during_rotation(1700);
-    motor_stop();
-    rotate_left_dir();
-    printf("📐 회전 누적 각도: %.2f도 (좌)\n", angle);
-}
-
-void handle_sigint(int sig)
-{
-    printf("\n🛑 인터럽트 발생 - 모터 정지 후 종료합니다.\n");
-    motor_stop();
-    exit(0);
-}
-
-int main()
-{
+int main() {
     signal(SIGINT, handle_sigint);
 
-    if (mpu6050_init("/dev/i2c-1") < 0)
-    {
-        printf("MPU6050 초기화 실패\n");
-        return 1;
-    }
+    // 1) IMU 초기화 (C 래퍼를 통해 RTIMULib2 사용)
+    imu_init();
+    printf("[RTIMULib2] IMU 초기화 완료 (C 래퍼 via imu_init)\n");
 
-    motor_setup();
-    move_forward_by_acceleration(30.0f);
-    usleep(3000000);
-    motor_stop();
-    // // usleep(500000); // 500ms = 0.5초
-    // // rotate_left_90();
-    // // motor_stop();
-    // // usleep(500000); // 500ms = 0.5초
-    // // move_forward_by_acceleration(30.0f);
+    // 2) 모터 초기화
+    setup_motors();
 
-    // printf("🎯 최종 위치: (%d, %d), 방향: %s\n", pos.x, pos.y, dir_name(pos.dir));
-    // return 0;
-    
+    //===============================================
+    //  메인 시나리오:
+    //   1) 30 cm 전진 → 2) 좌회전(IMU) → 3) 30 cm 전진 → 4) 우회전(IMU)
+    //===============================================
+    printf("\n=== 시간 기반 전진 + IMU 기반 회전 테스트 ===\n\n");
 
-    ///////////////////////////////////////////////////////////////
-    // go 함수 되는지 확인용 코드
-    // motor_setup();
-    // motor_go();
-    // usleep(3000000);
-    // motor_stop();
+    // 1) 30cm 전진
+    move_forward_by_time(FORWARD_DIST_CM);
+    sleep(1);
+
+    // 2) 90° 좌회전 (IMU)
+    rotate_left_90_imu();
+    sleep(1);
+
+    // 3) 30cm 전진
+    move_forward_by_time(FORWARD_DIST_CM);
+    sleep(1);
+
+    // 4) 90° 우회전 (IMU)
+    rotate_right_90_imu();
+    sleep(1);
+
+    printf("\n🎯 최종 위치: (%d, %d), 방향: %s\n",
+           pos.x, pos.y, dir_name(pos.dir));
+
+    return 0;
 }
