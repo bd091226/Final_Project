@@ -1,10 +1,9 @@
-# path_planner.py
-
 import numpy as np
 import random
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import os
 
 # ------------------------ Map & Q-learning ------------------------
 
@@ -27,23 +26,28 @@ def find_position(symbol):
         for j in range(COLS):
             if raw_map[i][j] == symbol:
                 return (i, j)
+    return None
 
 def state_to_index(state):
     return state[0] * COLS + state[1]
 
-def q_learning(start, goal, episodes=10000, alpha=0.1, gamma=0.9, epsilon=0.2, Q_init=None):
+def q_learning(start, goal, Q_init=None, episodes=5000, alpha=0.3, gamma=0.9):
     n_states = ROWS * COLS
     n_actions = len(actions)
-    if Q_init is None:
-        Q = np.zeros((n_states, n_actions))
-    else:
-        Q = Q_init
-    episode_rewards = []  # 각 에피소드 총 보상 저장용
+    Q = np.zeros((n_states, n_actions)) if Q_init is None else Q_init.copy()
+    episode_rewards = []
+
+    epsilon_start = 0.5
+    epsilon_min = 0.01
+    epsilon_decay = 0.995
+    epsilon = epsilon_start
+    max_steps = 100
 
     for ep in range(episodes):
         state = start
         total_reward = 0
-        while state != goal:
+        steps = 0
+        while state != goal and steps < max_steps:
             s_idx = state_to_index(state)
             if random.random() < epsilon:
                 a_idx = random.randint(0, n_actions - 1)
@@ -55,39 +59,22 @@ def q_learning(start, goal, episodes=10000, alpha=0.1, gamma=0.9, epsilon=0.2, Q
 
             if not is_valid(nx, ny):
                 next_state = state
-                reward = -5
+                reward = -2  # 무효 이동 패널티 완화
             else:
                 next_state = (nx, ny)
-                reward = 10 if next_state == goal else -1
+                reward = 10 if next_state == goal else -0.1  # 이동 페널티도 완화
 
             ns_idx = state_to_index(next_state)
             Q[s_idx][a_idx] += alpha * (reward + gamma * np.max(Q[ns_idx]) - Q[s_idx][a_idx])
+
             state = next_state
             total_reward += reward
+            steps += 1
+
         episode_rewards.append(total_reward)
+        epsilon = max(epsilon_min, epsilon * epsilon_decay)
 
     return Q, episode_rewards
-
-def plot_rewards(reward_lists, labels):
-    """
-    reward_lists: 리스트 안에 각 학습시 보상 리스트들이 들어감 [[ep_rewards_1], [ep_rewards_2], ...]
-    labels: 각 보상 리스트에 해당하는 이름 리스트
-    """
-    plt.figure(figsize=(10,6))
-    for rewards, label in zip(reward_lists, labels):
-        # 보상 값이 너무 불규칙할 수 있으니 이동평균으로 부드럽게 표시
-        window = 50
-        smoothed = np.convolve(rewards, np.ones(window)/window, mode='valid')
-        plt.plot(smoothed, label=label)
-    plt.xlabel('Episode')
-    plt.ylabel('Total Reward per Episode (Moving Average)')
-    plt.title('Q-learning Reward Comparison')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig("reward_comparison.png")
-    plt.close()
-    print("보상 비교 그래프 저장됨: reward_comparison.png")
-
 
 def extract_path(Q, start, goal):
     path = [start]
@@ -107,27 +94,89 @@ def extract_path(Q, start, goal):
         state = next_state
     return path
 
-def save_plot(path, curr_pos, start, goal, step_num):
-    map_data = np.array([[1 if c == '1' else 0 for c in row] for row in raw_map])
-    fig, ax = plt.subplots(figsize=(6,6))
-    ax.imshow(map_data, cmap='Greys', origin='upper')
-    ax.scatter(start[1], start[0], marker='o', color='green', s=200, label='Start (S)')
-    ax.scatter(goal[1], goal[0], marker='X', color='blue', s=200, label='Goal (A)')
+def save_path(path, filename):
+    with open(filename, "w") as f:
+        for x, y in path:
+            f.write(f"{x} {y}\n")
+    print(f"경로 저장 완료: {filename}")
 
-    if len(path) > 1:
-        xs = [p[1] for p in path]
-        ys = [p[0] for p in path]
-        ax.plot(xs, ys, linestyle='-', linewidth=3, color='orange', label='Path')
+def save_q_table(Q, filename="q_table.npy"):
+    np.save(filename, Q)
+    print(f"Q-table 저장됨: {filename}")
 
-    ax.scatter(curr_pos[1], curr_pos[0], color='red', s=300, label='Current Position')
-    ax.set_xticks(range(COLS))
-    ax.set_yticks(range(ROWS))
-    ax.set_xticklabels(range(COLS))
-    ax.set_yticklabels(range(ROWS))
-    ax.grid(True, color='lightgray', linestyle='--')
-    ax.set_title(f"Step {step_num}: Current Position {curr_pos}")
-    ax.legend(loc='upper right')
-    plt.savefig(f"position_step_{step_num}.png")
-    plt.close(fig)
+def load_q_table(filename="q_table.npy"):
+    if os.path.exists(filename):
+        print(f"Q-table 로드: {filename}")
+        return np.load(filename)
+    else:
+        print(f"{filename} 없음. 새로 초기화함.")
+        return None
 
+def plot_rewards(rewards, filename):
+    plt.figure()
+    plt.plot(rewards)
+    plt.xlabel("Episode")
+    plt.ylabel("Total Reward")
+    plt.title("Episode Reward Over Time")
+    plt.grid()
+    plt.savefig(filename)
+    plt.close()
+    print(f"보상 그래프 저장됨: {filename}")
 
+# ------------------------ 메인 실행부 ------------------------
+
+if __name__ == "__main__":
+    while True:
+        start_symbol = 'S'
+        goal_symbols = ['A', 'B', 'C', 'D']
+
+        start_pos = find_position(start_symbol)
+        if start_pos is None:
+            raise ValueError(f"시작 심볼 '{start_symbol}' 위치를 찾을 수 없습니다.")
+ 
+        Q_table = load_q_table()  # 이전 Q-table 불러오기
+
+        # 1. S -> 각 목표 학습
+        for goal_symbol in goal_symbols:
+            goal_pos = find_position(goal_symbol)
+            if goal_pos is None:
+                print(f"목표 심볼 '{goal_symbol}' 위치를 찾을 수 없습니다. 건너뜀.")
+                continue
+
+            q_filename = f"q_table_{start_symbol}_to_{goal_symbol}.npy"
+            Q_table = load_q_table(q_filename)
+
+            print(f"학습 시작: {start_symbol} → {goal_symbol}")
+            Q_table, rewards = q_learning(start_pos, goal_pos, Q_init=Q_table)
+            path = extract_path(Q_table, start_pos, goal_pos)
+
+            path_filename = f"path_{start_symbol}_to_{goal_symbol}.txt"
+            save_path(path, path_filename)
+
+            reward_plot_filename = f"reward_{start_symbol}_to_{goal_symbol}.png"
+            plot_rewards(rewards, reward_plot_filename)
+
+            save_q_table(Q_table, q_filename)
+
+        # 역방향 학습도 같은 방식으로
+        for goal_symbol in goal_symbols:
+            goal_pos = find_position(goal_symbol)
+            if goal_pos is None:
+                continue
+
+            q_filename = f"q_table_{goal_symbol}_to_{start_symbol}.npy"
+            Q_table = load_q_table(q_filename)
+
+            print(f"역방향 학습 시작: {goal_symbol} → {start_symbol}")
+            Q_table, rewards = q_learning(goal_pos, start_pos, Q_init=Q_table)
+            path = extract_path(Q_table, goal_pos, start_pos)
+
+            path_filename = f"path_{goal_symbol}_to_{start_symbol}.txt"
+            save_path(path, path_filename)
+
+            reward_plot_filename = f"reward_{goal_symbol}_to_{start_symbol}.png"
+            plot_rewards(rewards, reward_plot_filename)
+
+            save_q_table(Q_table, q_filename)
+
+        print("모든 목적지에 대한 학습 및 경로 저장 완료")
