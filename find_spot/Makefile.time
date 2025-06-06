@@ -1,0 +1,26 @@
+# ────────────────────────────
+# motor_time.c 전용 Makefile
+# TARGET: motor_time
+# ────────────────────────────
+
+CC      := gcc
+CFLAGS  := -Wall -O2
+LDFLAGS := -lwiringPi -lm
+
+TARGET  := motor_time
+SRC     := motor_time.c
+
+.PHONY: all clean run
+
+all: $(TARGET)
+
+$(TARGET): $(SRC)
+	$(CC) $(CFLAGS) $(SRC) -o $(TARGET) $(LDFLAGS)
+
+run: all
+	@echo "▶▶▶ 실행 중: ./$(TARGET)"
+	@sudo ./$(TARGET)
+
+clean:
+	@echo "▶▶▶ 빌드 결과물 삭제 중..."
+	@rm -f $(TARGET)
