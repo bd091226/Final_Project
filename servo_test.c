@@ -1,31 +1,34 @@
 #include <gpiod.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <time.h>
+#include <stdlib.h>
 
-#define CHIP_NAME "gpiochip0"
-#define GPIO_LINE 4   // BCM GPIO 4번 사용
-#define PERIOD_MS 20  // 20ms = 50Hz
-#define DUTY_CW 1.65  // 시계 방향 회전 (1.65ms)
-#define DUTY_CCW 1.35 // 반시계 방향 회전 (1.35ms)
-#define DUTY_STOP 1.5 // 정지 (1.5ms)
+#define CHIP_NAME "gpiochip0" // 기본 GPIO chip
+#define GPIO_LINE 26          // BCM 번호 (ex: GPIO18)
+#define PERIOD_MS 20          // 20ms 주기 (50Hz)
 
-void delay_us(long us)
+// 각도에 따라 HIGH 시간 (us) 계산
+int angle_to_pulse(int angle)
 {
-    struct timespec ts;
-    ts.tv_sec = us / 1000000;
-    ts.tv_nsec = (us % 1000000) * 1000;
-    nanosleep(&ts, NULL);
+    if (angle < 0)
+        angle = 0;
+    if (angle > 180)
+        angle = 180;
+    return 500 + (angle * 2000 / 180); // 500~2500us
 }
 
-void send_pwm(struct gpiod_line *line, float duty_ms, int repeat_count)
+void move_servo(struct gpiod_line *line, int angle)
 {
-    for (int i = 0; i < repeat_count; i++)
+    int high_time = angle_to_pulse(angle);
+    int low_time = PERIOD_MS * 1000 - high_time;
+
+    // 10회 반복 (약 0.2초 유지)
+    for (int i = 0; i < 10; ++i)
     {
-        gpiod_line_set_value(line, 1);
-        delay_us((long)(duty_ms * 1000));
-        gpiod_line_set_value(line, 0);
-        delay_us((long)((PERIOD_MS - duty_ms) * 1000));
+        gpiod_line_set_value(line, 1); // HIGH
+        usleep(high_time);
+        gpiod_line_set_value(line, 0); // LOW
+        usleep(low_time);
     }
 }
 
@@ -37,40 +40,39 @@ int main()
     chip = gpiod_chip_open_by_name(CHIP_NAME);
     if (!chip)
     {
-        perror("chip open error");
+        perror("gpiod_chip_open_by_name");
         return 1;
     }
 
     line = gpiod_chip_get_line(chip, GPIO_LINE);
     if (!line)
     {
-        perror("line open error");
+        perror("gpiod_chip_get_line");
         gpiod_chip_close(chip);
         return 1;
     }
 
     if (gpiod_line_request_output(line, "servo", 0) < 0)
     {
-        perror("line request error");
+        perror("gpiod_line_request_output");
         gpiod_chip_close(chip);
         return 1;
     }
 
-    printf("➡️ 시계 방향 회전 (0도 → 90도)\n");
-    send_pwm(line, DUTY_CW, 10); // 약 90도 이동 (실험적으로 맞춘 값)
+    printf("서보모터 0도\n");
+    move_servo(line, 0);
+    sleep(1);
 
-    printf("⏹ 정지\n");
-    send_pwm(line, DUTY_STOP, 5); // 정지
+    printf("서보모터 90도\n");
+    move_servo(line, 70);
+    sleep(1);
 
-    sleep(1); // 잠시 대기
-
-    printf("⬅️ 반시계 방향 회전 (90도 → 0도)\n");
-    send_pwm(line, DUTY_CCW, 80); // 반대방향으로 회전 (복귀)
-
-    printf("⏹ 정지\n");
-    send_pwm(line, DUTY_STOP, 5); // 정지
+    printf("서보모터 0도\n");
+    move_servo(line, 0);
+    sleep(1);
 
     gpiod_line_release(line);
     gpiod_chip_close(chip);
+
     return 0;
 }

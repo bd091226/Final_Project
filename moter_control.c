@@ -261,8 +261,8 @@ Direction move_step(Position curr, Position next, Direction current_dir)
         break;
     case 1:
         printf("➡️ 우회전\n");
-        turn_right(50);
-        usleep(850 * 1000);
+        turn_right(40);
+        usleep(580 * 1000);
         forward(40);
         break;
     case 2:
@@ -314,7 +314,7 @@ int main()
     setup();
 
     Position path[MAX_PATH_LENGTH];
-    int path_len = load_path_from_file("path_S_to_A.txt", path);
+    int path_len = load_path_from_file("path_S_to_B.txt", path);
     Direction current_dir = E;
 
     if (path_len <= 0)
@@ -324,7 +324,7 @@ int main()
         return 1;
     }
 
-    printf("[차량 이동 시작: S → A]\n");
+    printf("[차량 이동 시작: S → B]\n");
 
     for (int i = 0; i < path_len - 1; i++)
     {
@@ -355,9 +355,49 @@ int main()
     }
 
     turn_left(40);
-    usleep(550 * 1000);
+    usleep(1105 * 1000);
 
     stop_motor();
+
+    path_len = load_path_from_file("path_B_to_S.txt", path);
+    current_dir = S;
+
+    if (path_len <= 0)
+    {
+        fprintf(stderr, "경로 파일 읽기 실패\n");
+        cleanup();
+        return 1;
+    }
+
+    printf("[차량 이동 시작: B → S]\n");
+
+    for (int i = 0; i < path_len - 1; i++)
+    {
+        while (1)
+        {
+            float distance = get_distance_cm();
+            if (distance < 0)
+            {
+                fprintf(stderr, "거리 측정 실패\n");
+                stop_motor();
+                break;
+            }
+            printf("거리: %.2f cm\n", distance);
+
+            if (distance < 10.0)
+            {
+                printf("거리 10cm 이하 - 차량 정지\n");
+                stop_motor();
+                delay_ms(100);
+            }
+            else
+            {
+                printf("이동 재개\n");
+                current_dir = move_step(path[i], path[i + 1], current_dir);
+                break; // 다음 위치로 진행
+            }
+        }
+    }
     cleanup();
 
     return 0;
