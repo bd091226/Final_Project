@@ -1,11 +1,11 @@
 /*
  * Astar_C.c
- * A* controller that moves A completely, then B.
- * Uses A_motor_time and B_motor_time via pipes.
+ * 회전(TURN)과 전진(FORWARD)을 분리한 예측+차단+후퇴 전략
+ * A는 화살표로 표시되고, B는 'B'로 표시됩니다.
  *
- * Compile:
+ * 컴파일:
  *   gcc Astar_C.c -o Astar_C
- * Run:
+ * 실행:
  *   ./Astar_C
  */
 
@@ -15,29 +15,27 @@
  #include <limits.h>
  #include <unistd.h>
  #include <sys/types.h>
- #include <sys/wait.h>
  #include <sys/select.h>
  #include <stdbool.h>
  
  #define ROWS 9
  #define COLS 9
- #define MAX_NODES (ROWS*COLS)
+ #define MAX_NODES (ROWS * COLS)
  #define INF INT_MAX
+ #define SLEEP_USEC 500000    // 0.5초
+ #define PREDICT_RANGE 3      // B의 미래 몇 칸 예측
  #define BUF_SIZE 128
- #define CMD_TIMEOUT_SEC 1  // 응답 타임아웃(초)
+ #define CMD_TIMEOUT_SEC 1
  
  typedef struct { int r, c; } Point;
  typedef struct { int f, g; Point pt; } Node;
  
- // 전역 coords와 랜드마크
+ // 전역 랜드마크 좌표 저장
  static Point coords[256];
- static const char landmarks[] = { 'S','G','K','W' };
- static const int n_landmarks = sizeof(landmarks)/sizeof(landmarks[0]);
  
- static Node heap[MAX_NODES];
+ // A*용 간단 최소 힙
+ static Node heap[MAX_NODES+1];
  static int heap_size;
- 
- // 최소 힙 보조함수
  static void heap_swap(Node *a, Node *b) { Node t = *a; *a = *b; *b = t; }
  static void heap_push(Node n) {
      int i = ++heap_size;
@@ -63,23 +61,27 @@
  }
  
  static int heuristic(Point a, Point b) {
+     // 맨해튼 거리 휴리스틱
      return abs(a.r - b.r) + abs(a.c - b.c);
  }
  static int in_bounds(int r, int c) {
+     // 그리드 내에 있는지 확인
      return r >= 0 && r < ROWS && c >= 0 && c < COLS;
  }
  static int is_walkable(int grid[ROWS][COLS], int r, int c) {
-     return grid[r][c] == 0; // 장애물(1)이 아니면 걸어다닐 수 있음
+     // 0 이거나 랜드마크 음수일 때 이동 가능
+     return grid[r][c] == 0 || grid[r][c] < 0;
  }
  
- // A* 경로탐색
+ // A* 경로 탐색: 경로 길이 반환, 경로는 out[]에 저장
  int astar(int grid[ROWS][COLS], Point start, Point goal, Point *out) {
      heap_size = 0;
-     static int gs[MAX_NODES];
-     static Point from[MAX_NODES];
-     for (int i = 0; i < MAX_NODES; i++) gs[i] = INF;
-     gs[start.r*COLS + start.c] = 0;
-     heap_push((Node){ .f = heuristic(start, goal), .g = 0, .pt = start });
+     static int g_score[MAX_NODES];
+     static Point came_from[MAX_NODES];
+     for (int i = 0; i < MAX_NODES; i++) g_score[i] = INF;
+     int sidx = start.r * COLS + start.c;
+     g_score[sidx] = 0;
+     heap_push((Node){ .f = heuristic(start,goal), .g = 0, .pt = start });
  
      while (heap_size) {
          Node cur = heap_pop();
@@ -89,9 +91,10 @@
              Point p = goal;
              while (!(p.r == start.r && p.c == start.c)) {
                  out[len++] = p;
-                 p = from[p.r*COLS + p.c];
+                 p = came_from[p.r*COLS + p.c];
              }
              out[len++] = start;
+             // 역순 뒤집기
              for (int i = 0; i < len/2; i++) {
                  Point t = out[i];
                  out[i] = out[len-1-i];
@@ -102,11 +105,12 @@
          int dirs[4][2] = {{1,0},{-1,0},{0,1},{0,-1}};
          for (int i = 0; i < 4; i++) {
              int nr = u.r + dirs[i][0], nc = u.c + dirs[i][1];
-             if (in_bounds(nr, nc) && is_walkable(grid, nr, nc)) {
-                 int ng = cur.g + 1, idx = nr*COLS + nc;
-                 if (ng < gs[idx]) {
-                     gs[idx] = ng;
-                     from[idx] = u;
+             if (in_bounds(nr,nc) && is_walkable(grid,nr,nc)) {
+                 int idx = nr*COLS + nc;
+                 int ng = cur.g + 1;
+                 if (ng < g_score[idx]) {
+                     g_score[idx] = ng;
+                     came_from[idx] = u;
                      heap_push((Node){
                          .g = ng,
                          .f = ng + heuristic((Point){nr,nc}, goal),
@@ -116,38 +120,42 @@
              }
          }
      }
-     return 0;
+     return 0;  // 경로 없음
  }
  
- // 명령 전송 후 POS 응답 수신
+ // A/B 모터 프로세스와 통신
  int send_cmd(FILE *w, FILE *r,
               const char *label, const char *cmd,
-              Point *pos, int *dir) {
+              Point *pos, int *dir)
+ {
      char buf[BUF_SIZE];
      fd_set rfds; struct timeval tv;
- 
+     // 명령 전송
      fprintf(w, "%s:%s\n", label, cmd);
      fflush(w);
- 
+     // 응답 대기
      FD_ZERO(&rfds);
      FD_SET(fileno(r), &rfds);
      tv.tv_sec = CMD_TIMEOUT_SEC; tv.tv_usec = 0;
      if (select(fileno(r)+1, &rfds, NULL, NULL, &tv) <= 0) return -1;
- 
-     if (!fgets(buf, BUF_SIZE, r)) return -1;
-     printf("[A_motor_time] %s", buf);
-     fflush(stdout);
-     int pr, pc, pd;
-     if (sscanf(buf, "%*[^:]:POS %d %d %d", &pr, &pc, &pd) == 3) {
-         if (pos) { pos->r = pr; pos->c = pc; }
-         *dir = pd;
-         return 0;
+     // 회전 에코와 POS 둘 다 읽을 때까지 반복
+     while (fgets(buf, BUF_SIZE, r)) {
+         printf("[%s_motor_time] %s", label, buf);
+         int pr, pc, pd;
+         if (sscanf(buf, "%*[^:]:POS %d %d %d", &pr, &pc, &pd) == 3) {
+             pos->r = pr; pos->c = pc; *dir = pd;
+             return 0;
+         }
      }
      return -1;
  }
  
- // 그리드 출력 (열/행 라벨 + 랜드마크)
- void print_grid(int grid[ROWS][COLS], Point A, Point B) {
+ // 그리드 출력: A는 화살표, B는 'B'
+ void print_grid(int grid[ROWS][COLS],
+                 Point A, int dirA,
+                 Point B)
+ {
+     char arrow[4] = {'^','>','v','<'};
      printf("   ");
      for (int c = 0; c < COLS; c++) printf("%d ", c);
      printf("\n");
@@ -155,19 +163,10 @@
          printf("%d: ", r);
          for (int c = 0; c < COLS; c++) {
              char ch = '.';
-             if      (r==A.r && c==A.c)     ch = 'A';
-             else if (r==B.r && c==B.c)     ch = 'B';
+             if (r == A.r && c == A.c)      ch = arrow[dirA];
+             else if (r == B.r && c == B.c) ch = 'B';
              else if (grid[r][c] == 1)      ch = '#';
-             else {
-                 for (int i = 0; i < n_landmarks; i++) {
-                     char key = landmarks[i];
-                     Point p = coords[(unsigned char)key];
-                     if (p.r == r && p.c == c) {
-                         ch = key;
-                         break;
-                     }
-                 }
-             }
+             else if (grid[r][c] < 0)       ch = (char)(-grid[r][c]);
              printf("%c ", ch);
          }
          printf("\n");
@@ -175,13 +174,18 @@
      printf("\n");
  }
  
- int main() {
-     printf("Astar_C 시작\n"); fflush(stdout);
+ int point_equals(Point a, Point b) {
+     return a.r == b.r && a.c == b.c;
+ }
  
+ int main(){
+     printf("Astar_C 시작\n");
+     fflush(stdout);
+ 
+     // 파이프 생성 및 A/B 프로세스 포크
      int pa_in[2], pa_out[2], pb_in[2], pb_out[2];
      pipe(pa_in); pipe(pa_out);
      pipe(pb_in); pipe(pb_out);
- 
      if (fork() == 0) {
          dup2(pa_in[0], STDIN_FILENO);
          dup2(pa_out[1], STDOUT_FILENO);
@@ -190,7 +194,6 @@
          perror("execl A_motor_time"); exit(1);
      }
      close(pa_in[0]); close(pa_out[1]);
- 
      if (fork() == 0) {
          dup2(pb_in[0], STDIN_FILENO);
          dup2(pb_out[1], STDOUT_FILENO);
@@ -199,28 +202,28 @@
          perror("execl B_motor_time"); exit(1);
      }
      close(pb_in[0]); close(pb_out[1]);
- 
      FILE *fa_w = fdopen(pa_in[1],"w"), *fa_r = fdopen(pa_out[0],"r");
      FILE *fb_w = fdopen(pb_in[1],"w"), *fb_r = fdopen(pb_out[0],"r");
  
+     // 그리드 초기화 및 랜드마크 좌표 설정
      int raw[ROWS][COLS] = {
-         {- 'B',0,0,0,0,0,0,0,0},
-         {0,1,1,1,0,1,1,1,0},
-         {0,1,1,1,0,1,1,1,0},
-         {0,1,- 'S',1,0,1,- 'G',1,0},
-         {0,0,0,0,0,0,0,0,0},
-         {0,1,1,1,0,1,1,1,0},
-         {0,1,1,1,0,1,1,1,0},
-         {0,1,- 'K',1,0,1,- 'W',1,0},
-         {0,0,0,0,0,0,0,0,- 'A'}
+         { -'B',0,0,0,0,0,0,0,0 },
+         {    0,1,1,1,0,1,1,1,0 },
+         {    0,1,1,1,0,1,1,1,0 },
+         {    0,1,-'S',1,0,1,-'G',1,0 },
+         {    0,0,0,0,0,0,0,0,0 },
+         {    0,1,1,1,0,1,1,1,0 },
+         {    0,1,1,1,0,1,1,1,0 },
+         {    0,1,-'K',1,0,1,-'W',1,0 },
+         {    0,0,0,0,0,0,0,0,-'A' }
      };
      int grid[ROWS][COLS];
-     for (int r=0; r<ROWS; r++) {
-         for (int c=0; c<COLS; c++) {
+     for (int r = 0; r < ROWS; r++) {
+         for (int c = 0; c < COLS; c++) {
              if (raw[r][c] == 1) {
                  grid[r][c] = 1;
              } else {
-                 grid[r][c] = 0;
+                 grid[r][c] = raw[r][c] < 0 ? raw[r][c] : 0;
                  if (raw[r][c] < 0) {
                      coords[(unsigned char)(-raw[r][c])] = (Point){r,c};
                  }
@@ -228,74 +231,140 @@
          }
      }
  
-     char goalsA[] = {'K','G','S','W','A'}; int nA=5;
-     char goalsB[] = {'W','B','S','B','G','B','K','B'}; int nB=8;
-     Point posA = coords['A'], posB = coords['B'];
-     int dirA=0, dirB=0, lenA=0, lenB=0, idxA=0, idxB=0;
+     // 목표 리스트
+     char goalsA[] = {'K','G','S','W','A'};
+     char goalsB[] = {'W','B','S','B','G','B','K','B'};
+     int nA = sizeof(goalsA)/sizeof(goalsA[0]);
+     int nB = sizeof(goalsB)/sizeof(goalsB[0]);
+ 
+     // B의 정적 종료 구역 설정
+     static Point exit_zone_map[256][1];
+     static int ez_count[256] = {0};
+     ez_count['S'] = 1; exit_zone_map['S'][0] = coords['S'];
+     ez_count['G'] = 1; exit_zone_map['G'][0] = coords['G'];
+     ez_count['K'] = 1; exit_zone_map['K'][0] = coords['K'];
+     ez_count['W'] = 1; exit_zone_map['W'][0] = coords['W'];
+ 
+     // 초기 위치 요청
+     Point A = coords['A'], B = coords['B'], dummy;
+     int dirA = 0, dirB = 0;
+     send_cmd(fa_w, fa_r, "A", "POS", &A, &dirA);
+     send_cmd(fb_w, fb_r, "B", "POS", &B, &dirB);
+     print_grid(grid, A, dirA, B);
+ 
+     // 경로 버퍼 및 상태 변수
      Point pathA[MAX_NODES], pathB[MAX_NODES];
-     Point dummy;  // 모터 pos 피드백 무시용
+     int lenA=1, lenB=1, idxA=0, idxB=0;
+     pathA[0] = A; pathB[0] = B;
+     bool block_map[ROWS][COLS] = {{false}};
+     Point block_list[MAX_NODES]; int block_cnt=0;
+     bool A_blocking = false;
+     Point retreatPath[MAX_NODES]; int retreatLen=0;
  
-     send_cmd(fa_w, fa_r, "A", "POS", &dummy, &dirA);
-     send_cmd(fb_w, fb_r, "B", "POS", &dummy, &dirB);
-     print_grid(grid, posA, posB);
- 
-     printf("--- Moving A ---\n");
-     while (idxA < nA) {
-         if (lenA <= 1) {
-             lenA = astar(grid, posA, coords[(unsigned char)goalsA[idxA]], pathA);
-             printf("→ Path to '%c' (len=%d): ", goalsA[idxA], lenA);
-             for (int i=0; i<lenA; i++)
-                 printf("(%d,%d) ", pathA[i].r, pathA[i].c);
-             printf("\n");
-             if (lenA <= 1) { idxA++; continue; }
+     int t = 0;
+     while (idxA < nA || idxB < nB) {
+         // A 경로 재계획
+         if (lenA <= 1 && idxA < nA) {
+             Point dest = coords[(unsigned char)goalsA[idxA++]];
+             lenA = astar(grid, A, dest, pathA);
          }
-         Point nxt = pathA[1];
-         int td = (nxt.r < posA.r ? 0 : nxt.r > posA.r ? 2 : nxt.c > posA.c ? 1 : 3);
-         int diff = (td - dirA + 4) % 4; if (diff == 3) diff = -1;
-         dirA = (dirA + diff + 4) % 4;
-         if (diff < 0)
-             send_cmd(fa_w, fa_r, "A", "TURN_LEFT", &dummy, &dirA);
-         else if (diff > 0)
-             send_cmd(fa_w, fa_r, "A", "TURN_RIGHT", &dummy, &dirA);
-         print_grid(grid, posA, posB);
-         usleep(500000);
+         // B 미래 예측
+         Point futureB[PREDICT_RANGE+4]; int fb_cnt=0;
+         if (lenB > 1) {
+             for (int i = 1; i <= PREDICT_RANGE && i < lenB; i++)
+                 futureB[fb_cnt++] = pathB[i];
+         }
+         if (idxB > 0) {
+             char last = goalsB[idxB-1];
+             for (int i = 0; i < ez_count[(unsigned char)last]; i++)
+                 futureB[fb_cnt++] = exit_zone_map[(unsigned char)last][i];
+         }
+         // 다음 목표 칸
+         Point nextA = (lenA>1 ? pathA[1] : A);
+         Point nextB = (lenB>1 ? pathB[1] : B);
+         bool moveA = true, moveB = true;
+         if (point_equals(nextA,nextB) ||
+             (point_equals(nextA,B) && point_equals(nextB,A)))
+             moveA = false;
+         for (int i = 0; i < fb_cnt; i++)
+             if (point_equals(nextA, futureB[i])) { moveA = false; break; }
  
-         send_cmd(fa_w, fa_r, "A", "FORWARD", &dummy, &dirA);
-         posA = nxt;
-         memmove(pathA, pathA+1, (--lenA)*sizeof(Point));
-         print_grid(grid, posA, posB);
-         usleep(500000);
+         // A 충돌 시 차단 및 후퇴 시도
+         if (!moveA) {
+             A_blocking = true;
+             if (!block_map[A.r][A.c]) {
+                 block_map[A.r][A.c] = true;
+                 block_list[block_cnt++] = A;
+             }
+             retreatLen = astar(grid, A, pathA[0], retreatPath);
+             if (retreatLen > 1) {
+                 Point cand = retreatPath[1]; bool ok=true;
+                 for (int i = 0; i < fb_cnt; i++)
+                     if (point_equals(cand, futureB[i])) { ok = false; break; }
+                 if (ok) {
+                     memcpy(pathA, retreatPath, retreatLen*sizeof(Point));
+                     lenA = retreatLen;
+                     moveA = true;
+                 }
+             }
+         } else {
+             A_blocking = false;
+             if (block_map[A.r][A.c]) block_map[A.r][A.c] = false;
+         }
+         // B 경로 재계획
+         if ((lenB <= 1 && idxB < nB) || A_blocking) {
+             int temp[ROWS][COLS];
+             memcpy(temp, grid, sizeof(grid));
+             for (int i = 0; i < block_cnt; i++) {
+                 Point p = block_list[i];
+                 temp[p.r][p.c] = 1;
+             }
+             if (idxB < nB) {
+                 Point destB = coords[(unsigned char)goalsB[idxB]];
+                 lenB = astar(temp, B, destB, pathB);
+                 if (lenB <= 1) idxB++;
+             }
+         }
+ 
+         // A: 회전 또는 전진
+         if (moveA && lenA > 1) {
+             Point nxt = pathA[1];
+             int td = (nxt.r < A.r ? 0
+                     : nxt.r > A.r ? 2
+                     : nxt.c > A.c ? 1 : 3);
+             int diff = (td - dirA + 4) % 4;
+             if (diff == 3) diff = -1;
+             printf("A diff: %d\n", diff);
+ 
+             if (diff < 0) {
+                 // 좌회전만 수행
+                 send_cmd(fa_w, fa_r, "A", "TURN_LEFT",  &dummy, &dirA);
+             }
+             else if (diff > 0) {
+                 // 우회전만 수행
+                 send_cmd(fa_w, fa_r, "A", "TURN_RIGHT", &dummy, &dirA);
+             }
+             else {
+                 // 직진
+                 send_cmd(fa_w, fa_r, "A", "FORWARD", &dummy, &dirA);
+                 A = nxt;
+                 memmove(pathA, pathA+1, (--lenA)*sizeof(Point));
+             }
+             print_grid(grid, A, dirA, B);
+         }
+ 
+         // B: 전진만
+         if (moveB && lenB > 1) {
+             send_cmd(fb_w, fb_r, "B", "FORWARD", &dummy, &dirB);
+             B = pathB[1];
+             memmove(pathB, pathB+1, (--lenB)*sizeof(Point));
+             print_grid(grid, A, dirA, B);
+         }
+ 
+         printf("--- t=%d ---\n", t++);
+         usleep(SLEEP_USEC);
      }
  
-     printf("--- Moving B ---\n");
-     while (idxB < nB) {
-         if (lenB <= 1) {
-             lenB = astar(grid, posB, coords[(unsigned char)goalsB[idxB]], pathB);
-             printf("→ Path to '%c' (len=%d): ", goalsB[idxB], lenB);
-             for (int i=0; i<lenB; i++)
-                 printf("(%d,%d) ", pathB[i].r, pathB[i].c);
-             printf("\n");
-             if (lenB <= 1) { idxB++; continue; }
-         }
-         Point nxt = pathB[1];
-         int td = (nxt.r < posB.r ? 0 : nxt.r > posB.r ? 2 : nxt.c > posB.c ? 1 : 3);
-         int diff = (td - dirB + 4) % 4; if (diff == 3) diff = -1;
-         dirB = (dirB + diff + 4) % 4;
-         if (diff < 0)
-             send_cmd(fb_w, fb_r, "B", "TURN_LEFT", &dummy, &dirB);
-         else if (diff > 0)
-             send_cmd(fb_w, fb_r, "B", "TURN_RIGHT", &dummy, &dirB);
-         print_grid(grid, posA, posB);
-         usleep(500000);
- 
-         send_cmd(fb_w, fb_r, "B", "FORWARD", &dummy, &dirB);
-         posB = nxt;
-         memmove(pathB, pathB+1, (--lenB)*sizeof(Point));
-         print_grid(grid, posA, posB);
-         usleep(500000);
-     }
- 
-     wait(NULL);
-     wait(NULL);
      return 0;
- } 
+ }
+ 
