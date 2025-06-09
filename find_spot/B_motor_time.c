@@ -27,7 +27,7 @@
  typedef enum { NORTH=0, EAST=1, SOUTH=2, WEST=3 } Direction;
  
  typedef struct { int row, col; Direction dir; } Position;
- static Position pos = {0, 0, NORTH};
+ static Position pos = {8, 8, NORTH};
  
  // Movement timing
  #define SECONDS_PER_GRID_STEP      1.1
@@ -78,31 +78,43 @@
  }
  
  // Rotate one 90° step: +1 right, -1 left
- static void rotate_one(Direction *d, int turn_dir) {
-     // micro forward before rotation
-    //  double micro = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
-    //  motor_go(); delay_sec(micro); motor_stop();
-    //  delay_sec(0.1);
-    //  if (turn_dir > 0) motor_right();
-    //  else             motor_left();
-    //  delay_sec(SECONDS_PER_90_DEG_ROTATION);
-    //  motor_stop();
-     int nd = (*d + turn_dir + 4) % 4;
-     *d = (Direction)nd;
- }
- 
- // Move forward one grid cell
- static void forward_one(void) {
-    //  motor_go();
-    //  delay_sec(SECONDS_PER_GRID_STEP);
-    //  motor_stop();
-     switch (pos.dir) {
-         case NORTH: pos.row -= 1; break;
-         case SOUTH: pos.row += 1; break;
-         case EAST:  pos.col += 1; break;
-         case WEST:  pos.col -= 1; break;
-     }
- }
+static void rotate_one(Direction *d, int turn_dir) {
+    // 1) 회전 전 약간 전진하여 자세 보정
+    double micro = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
+    motor_go();
+    delay_sec(micro);
+    motor_stop();
+    delay_sec(0.1);
+
+    // 2) 실제 회전
+    if (turn_dir > 0) {
+        motor_right();
+    } else {
+        motor_left();
+    }
+    delay_sec(SECONDS_PER_90_DEG_ROTATION);
+    motor_stop();
+
+    // 3) 내부 방향 상태 갱신 (하드웨어 회전과 동기)
+    int nd = (*d + turn_dir + 4) % 4;
+    *d = (Direction)nd;
+}
+
+// Move forward one grid cell
+static void forward_one(void) {
+    // 1) 모터 전진
+    motor_go();
+    delay_sec(SECONDS_PER_GRID_STEP);
+    motor_stop();
+
+    // 2) 논리적 좌표 갱신
+    switch (pos.dir) {
+        case NORTH: pos.row -= 1; break;
+        case SOUTH: pos.row += 1; break;
+        case EAST:  pos.col += 1; break;
+        case WEST:  pos.col -= 1; break;
+    }
+}
  
  int main(void) {
      char buf[128];
@@ -117,23 +129,32 @@
      printf("B:POS %d %d %d\n", pos.row, pos.col, pos.dir);
      fflush(stdout);
  
-     while (fgets(buf, sizeof(buf), stdin)) {
-         // echo received command on terminal
-         printf("[B_motor_time] Received command: %s", buf);
-         fflush(stdout);
-         if (strncmp(buf, "B:TURN_LEFT", 11) == 0) {
-             rotate_one(&pos.dir, -1);
-         } else if (strncmp(buf, "B:TURN_RIGHT", 12) == 0) {
-             rotate_one(&pos.dir, +1);
-         } else if (strncmp(buf, "B:FORWARD", 9) == 0) {
-             forward_one();
-         } else {
-             continue;
-         }
-         // send updated position
-         printf("B:POS %d %d %d\n", pos.row, pos.col, pos.dir);
-         fflush(stdout);
-     }
+     while(fgets(buf, sizeof(buf), stdin)) {
+        // 명령 수신 로그
+        printf("[B_motor_time] Received command: %s", buf);
+        fflush(stdout);
+    
+        if(strncmp(buf, "B:TURN_LEFT", 11) == 0) {
+            printf("[B_motor_time] Executing TURN_LEFT...\n");
+            fflush(stdout);
+            rotate_one(&pos.dir, -1);
+        } else if(strncmp(buf, "B:TURN_RIGHT", 12) == 0) {
+            printf("[B_motor_time] Executing TURN_RIGHT...\n");
+            fflush(stdout);
+            rotate_one(&pos.dir, +1);
+        } else if(strncmp(buf, "B:FORWARD", 9) == 0) {
+            printf("[B_motor_time] Executing FORWARD...\n");
+            fflush(stdout);
+            forward_one();
+        } else {
+            printf("[B_motor_time] Unknown command\n");
+            fflush(stdout);
+            continue;
+        }
+    
+        // 명령 처리 후 현재 위치 출력
+        printf("B:POS %d %d %d\n", pos.row, pos.col, pos.dir);
+        fflush(stdout);
+    }
      return 0;
  }
- 

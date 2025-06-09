@@ -6,8 +6,7 @@
  * 컴파일:
  *   gcc Astar_C.c -o Astar_C
  * 실행:
- *   
- 
+ *   ./Astar_C
  */
 
 #include <stdio.h>
@@ -18,6 +17,11 @@
 #include <sys/types.h>
 #include <sys/select.h>
 #include <stdbool.h>
+
+#define NORTH 0
+#define EAST  1
+#define SOUTH 2
+#define WEST  3
 
 #define ROWS 9
 #define COLS 9
@@ -195,7 +199,7 @@ int main(){
     int pa_in[2], pa_out[2], pb_in[2], pb_out[2];
     pipe(pa_in); pipe(pa_out);
     pipe(pb_in); pipe(pb_out);
-    if (fork() == 0) {
+    if(fork()==0){
         dup2(pa_in[0], STDIN_FILENO);
         dup2(pa_out[1], STDOUT_FILENO);
         close(pa_in[1]); close(pa_out[0]);
@@ -203,7 +207,7 @@ int main(){
         perror("execl A_motor_time"); exit(1);
     }
     close(pa_in[0]); close(pa_out[1]);
-    if (fork() == 0) {
+    if(fork()==0){
         dup2(pb_in[0], STDIN_FILENO);
         dup2(pb_out[1], STDOUT_FILENO);
         close(pb_in[1]); close(pb_out[0]);
@@ -216,7 +220,7 @@ int main(){
 
     // 그리드 초기화 및 랜드마크 좌표 설정
     int raw[ROWS][COLS] = {
-        { -'B',0,0,0,0,0,0,0,0 },
+        { -'A',0,0,0,0,0,0,0,0 },
         {    0,1,1,1,0,1,1,1,0 },
         {    0,1,1,1,0,1,1,1,0 },
         {    0,1,-'S',1,0,1,-'G',1,0 },
@@ -224,7 +228,7 @@ int main(){
         {    0,1,1,1,0,1,1,1,0 },
         {    0,1,1,1,0,1,1,1,0 },
         {    0,1,-'K',1,0,1,-'W',1,0 },
-        {    0,0,0,0,0,0,0,0,-'A' }
+        {    0,0,0,0,0,0,0,0,-'B' }
     };
     int grid[ROWS][COLS];
     for(int r=0;r<ROWS;r++){
@@ -239,170 +243,137 @@ int main(){
     }
 
     // 목표 리스트
-    char goalsA[] = {'K','G','S','W','A'};
-    char goalsB[] = {'W','B','S','B','G','B','K','B'};
+    char goalsA[] = {'G','K','S','G','A'};
+    char goalsB[] = {'W','B','K','B','G','B','K','B'};
     int nA = sizeof(goalsA)/sizeof(goalsA[0]);
     int nB = sizeof(goalsB)/sizeof(goalsB[0]);
 
     // B의 정적 종료 구역 설정
     static Point exit_zone_map[256][1];
-    static int ez_count[256]={0};
+    static int ez_count[256] = {0};
     ez_count['S']=1; exit_zone_map['S'][0]=coords['S'];
     ez_count['G']=1; exit_zone_map['G'][0]=coords['G'];
     ez_count['K']=1; exit_zone_map['K'][0]=coords['K'];
     ez_count['W']=1; exit_zone_map['W'][0]=coords['W'];
 
-    // 초기 위치 요청 및 방향 초기화 (B는 남쪽으로 시작)
+    // 초기 위치 요청 및 방향 초기화
+    // A를 (0,0) 출발, B를 (8,8) 출발로 설정
     Point A = coords['A'], B = coords['B'], dummy;
-    int dirA=0, dirB=2;
+    int dirA = SOUTH,    // A: 아래(SOUTH) 방향으로 시작
+        dirB = NORTH;    // B: 위(NORTH) 방향으로 시작
     send_cmd(fa_w, fa_r, "A", "POS", &A, &dirA);
     send_cmd(fb_w, fb_r, "B", "POS", &B, &dirB);
     print_grid(grid, A, dirA, B, dirB);
 
     // 경로 버퍼 및 상태 변수
     Point pathA[MAX_NODES], pathB[MAX_NODES];
-    int lenA=1,lenB=1, idxA=0, idxB=0;
+    int lenA=1, lenB=1, idxA=0, idxB=0;
     pathA[0]=A; pathB[0]=B;
     bool block_map[ROWS][COLS]={{false}};
     Point block_list[MAX_NODES]; int block_cnt=0;
     bool A_blocking=false;
     Point retreatPath[MAX_NODES]; int retreatLen=0;
 
-    int t=0;
-    while(idxA<nA || idxB<nB){
+    int t = 0;
+    while (idxA < nA || idxB < nB) {
         // ── A 경로 재계획 ──
-        if(lenA<=1 && idxA<nA){
-            Point dest = coords[(unsigned char)goalsA[idxA++]];
-            lenA = astar(grid, A, dest, pathA);
+        if (lenA <= 1 && idxA < nA) {
+            Point destA = coords[(unsigned char)goalsA[idxA++]];
+            lenA = astar(grid, A, destA, pathA);
         }
 
-        // ── B 경로 재계획 (A_blocking 또는 목표 도달 시만) ──
-        if((lenB<=1 && idxB<nB) || A_blocking){
+        // ── B 경로 재계획 (A blocking 있을 때만) ──
+        if ((lenB <= 1 && idxB < nB) || A_blocking) {
             int temp[ROWS][COLS];
-            memcpy(temp,grid,sizeof(grid));
-            for(int i=0;i<block_cnt;i++){
+            memcpy(temp, grid, sizeof(grid));
+            for (int i = 0; i < block_cnt; i++) {
                 Point p = block_list[i];
                 temp[p.r][p.c] = 1;
             }
-            if(idxB<nB){
+            if (idxB < nB) {
                 Point destB = coords[(unsigned char)goalsB[idxB]];
                 lenB = astar(temp, B, destB, pathB);
-                if(lenB<=1) idxB++;
+                if (lenB <= 1) idxB++;
             }
         }
 
-        // ── B 미래 예측 ──
-        Point futureB[PREDICT_RANGE+1];
-        int fb_cnt=0;
-        if(lenB>1){
-            for(int i=1;i<=PREDICT_RANGE && i<lenB;i++){
-                futureB[fb_cnt++] = pathB[i];
-            }
-        }
-        if(idxB>0){
-            char last = goalsB[idxB-1];
-            for(int i=0;i<ez_count[(unsigned char)last]; i++){
-                futureB[fb_cnt++] = exit_zone_map[(unsigned char)last][i];
+        // ── B 미래 경로 예측 ──
+        Point futureB[PREDICT_RANGE];
+        int fb_cnt = 0;
+        if (lenB > 1) {
+            for (int k = 1; k <= PREDICT_RANGE && k < lenB; k++) {
+                futureB[fb_cnt++] = pathB[k];
             }
         }
 
-        // ── A 충돌 판단 & 차단/후퇴 ──
-        Point nextA = (lenA>1 ? pathA[1] : A);
-        Point nextB = (lenB>1 ? pathB[1] : B);
+        // ── A 이동 결정 ──
+        Point nextA = (lenA > 1 ? pathA[1] : A);
+        Point nextB = (lenB > 1 ? pathB[1] : B);
         bool moveA = true;
-        // 정면 충돌
-        if(point_equals(nextA,nextB) ||
-           (point_equals(nextA,B) && point_equals(nextB,A)))
+
+        // 즉시 충돌 방지 (정면·스왑·B가 A 자리로 진입)
+        if ( point_equals(nextA, nextB)
+          || (point_equals(nextA, B) && point_equals(nextB, A))
+          || point_equals(nextB, A) ) {
             moveA = false;
-        // B 미래 예측과 충돌
-        for(int i=0;i<fb_cnt;i++){
-            if(point_equals(nextA, futureB[i])){
+        }
+
+        // 미래 충돌 예측: B의 다음 PREDICT_RANGE 칸 안에 A가 들어가려 하면 대기
+        for (int i = 0; i < fb_cnt; i++) {
+            if (point_equals(nextA, futureB[i])) {
                 moveA = false;
+                printf("[Predict] A waits at (%d,%d)\n", A.r, A.c);
+                fflush(stdout);
                 break;
             }
         }
 
-        if(!moveA){
-            A_blocking = true;
-            if(!block_map[A.r][A.c]){
-                block_map[A.r][A.c]   = true;
-                block_list[block_cnt++] = A;
-            }
-            retreatLen = astar(grid, A, pathA[0], retreatPath);
-            if(retreatLen>1){
-                Point cand = retreatPath[1];
-                bool ok = true;
-                for(int i=0;i<fb_cnt;i++){
-                    if(point_equals(cand, futureB[i])){
-                        ok = false;
-                        break;
-                    }
-                }
-                if(ok){
-                    memcpy(pathA, retreatPath, retreatLen*sizeof(Point));
-                    lenA = retreatLen;
-                    moveA = true;
-                }
-            }
-        } else {
-            A_blocking = false;
-            memset(block_map, 0, sizeof(block_map));
-            block_cnt = 0;
-        }
-
-        // ── A: 회전(TURN) ↔ 전진(FORWARD) ──
-        if(moveA && lenA>1){
+        // ── A 실제 이동 ──
+        if (moveA && lenA > 1) {
             Point nxt = pathA[1];
-            int td = (nxt.r < A.r ? 0
-                    : nxt.r > A.r ? 2
-                    : nxt.c > A.c ? 1 : 3);
+            int td = (nxt.r < A.r ? NORTH
+                     : nxt.r > A.r ? SOUTH
+                     : nxt.c > A.c ? EAST : WEST);
             int diff = (td - dirA + 4) % 4;
-            if(diff == 3) diff = -1;
-            printf("A diff: %d\n", diff);
-            if(diff < 0){
-                send_cmd(fa_w, fa_r, "A", "TURN_LEFT",  &dummy, &dirA);
-                print_grid(grid, A, dirA, B, dirB);
-                continue;  // ← TURN 후엔 바로 다음 루프로
-            }
-            else if(diff > 0){
+            if (diff == 3) diff = -1;
+            printf("A diff: %d\n", diff); fflush(stdout);
+
+            if (diff < 0) {
+                send_cmd(fa_w, fa_r, "A", "TURN_LEFT", &dummy, &dirA);
+            } else if (diff > 0) {
                 send_cmd(fa_w, fa_r, "A", "TURN_RIGHT", &dummy, &dirA);
-                print_grid(grid, A, dirA, B, dirB);
-                continue;  // ← TURN 후엔 바로 다음 루프로
+            } else {
+                send_cmd(fa_w, fa_r, "A", "FORWARD", &dummy, &dirA);
+                A = nxt;
+                memmove(pathA, pathA+1, (--lenA) * sizeof(Point));
             }
-            // diff == 0: 전진
-            send_cmd(fa_w, fa_r, "A", "FORWARD", &dummy, &dirA);
-            A = nxt;
-            memmove(pathA, pathA+1, (--lenA)*sizeof(Point));
         }
+        // else: A waits, pathA/lenA/A unchanged
 
-        // ── B: 회전(TURN) ↔ 전진(FORWARD) ──
-        if(lenB>1){
-            Point nxt = pathB[1];
-            int td = (nxt.r < B.r ? 0
-                    : nxt.r > B.r ? 2
-                    : nxt.c > B.c ? 1 : 3);
-            int diff = (td - dirB + 4) % 4;
-            if(diff == 3) diff = -1;
-            printf("B diff: %d\n", diff);
-            if(diff < 0){
-                send_cmd(fb_w, fb_r, "B", "TURN_LEFT",  &dummy, &dirB);
-                print_grid(grid, A, dirA, B, dirB);
-                continue;
-            }
-            else if(diff > 0){
+        // ── B 실제 이동 ──
+        if (lenB > 1) {
+            Point nxtB = pathB[1];
+            int tdB = (nxtB.r < B.r ? NORTH
+                      : nxtB.r > B.r ? SOUTH
+                      : nxtB.c > B.c ? EAST : WEST);
+            int diffB = (tdB - dirB + 4) % 4;
+            if (diffB == 3) diffB = -1;
+            printf("B diff: %d\n", diffB); fflush(stdout);
+
+            if (diffB < 0) {
+                send_cmd(fb_w, fb_r, "B", "TURN_LEFT", &dummy, &dirB);
+            } else if (diffB > 0) {
                 send_cmd(fb_w, fb_r, "B", "TURN_RIGHT", &dummy, &dirB);
-                print_grid(grid, A, dirA, B, dirB);
-                continue;
+            } else {
+                send_cmd(fb_w, fb_r, "B", "FORWARD", &dummy, &dirB);
+                B = nxtB;
+                memmove(pathB, pathB+1, (--lenB) * sizeof(Point));
             }
-            // diff == 0: 전진
-            send_cmd(fb_w, fb_r, "B", "FORWARD", &dummy, &dirB);
-            B = nxt;
-            memmove(pathB, pathB+1, (--lenB)*sizeof(Point));
         }
 
-        // ── 한 번만 전체 그리드 출력 ──
-        print_grid(grid, A, dirA, B, dirB);
+        // ── 한 스텝 완료 ──
         printf("--- t=%d ---\n", t++);
+        print_grid(grid, A, dirA, B, dirB);
         usleep(SLEEP_USEC);
     }
 
