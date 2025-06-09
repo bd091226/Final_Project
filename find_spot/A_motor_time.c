@@ -27,7 +27,7 @@
  typedef enum { NORTH=0, EAST=1, SOUTH=2, WEST=3 } Direction;
  
  typedef struct { int row, col; Direction dir; } Position;
- static Position pos = {0, 0, NORTH};
+ static Position pos = {8, 8, NORTH};
  
  // Movement timing
  #define SECONDS_PER_GRID_STEP      1.1
@@ -80,21 +80,23 @@
  // Rotate one 90° step: +1 right, -1 left
  static void rotate_one(Direction *d, int turn_dir) {
      // micro forward before rotation
-     double micro = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
-     motor_go(); delay_sec(micro); motor_stop();
-     delay_sec(0.1);
-     if(turn_dir > 0) motor_right(); else motor_left();
-     delay_sec(SECONDS_PER_90_DEG_ROTATION);
-     motor_stop();
+
+    //  double micro = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
+    //  motor_go(); delay_sec(micro); motor_stop();
+    //  delay_sec(0.1);
+    //  if(turn_dir > 0) motor_right(); else motor_left();
+    //  delay_sec(SECONDS_PER_90_DEG_ROTATION);
+    //  motor_stop();
+
      int nd = (*d + turn_dir + 4) % 4;
      *d = (Direction)nd;
  }
  
  // Move forward one grid cell
  static void forward_one(void) {
-     motor_go();
-     delay_sec(SECONDS_PER_GRID_STEP);
-     motor_stop();
+    //  motor_go();
+    //  delay_sec(SECONDS_PER_GRID_STEP);
+    //  motor_stop();
      switch(pos.dir) {
          case NORTH: pos.row -= 1; break;
          case SOUTH: pos.row += 1; break;
