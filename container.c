@@ -6,8 +6,10 @@
 
 #define ADDRESS "tcp://localhost:1883"
 #define CLIENTID "Storage"
-#define TOPIC_SUB "vehicle/status"
-#define TOPIC_PUB "vehicle/storage/A"
+#define TOPIC_CURRENT_A "vehicle/status_A"
+#define TOPIC_PUB_A "vehicle/storage/A"
+#define TOPIC_CURRENT_B "vehicle/status_B"
+#define TOPIC_PUB_B "vehicle/storage/B"
 #define QOS 0
 #define TIMEOUT 10000L
 
@@ -23,7 +25,7 @@ void send_message_to_vehicle_A(const char *msg)
     pubmsg.retained = 0;
 
     MQTTClient_deliveryToken token;
-    int rc = MQTTClient_publishMessage(client, TOPIC_PUB, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_PUB_A, &pubmsg, &token);
     if (rc != MQTTCLIENT_SUCCESS)
     {
         fprintf(stderr, "차량 A에게 메시지 송신 실패: %d\n", rc);
@@ -32,6 +34,28 @@ void send_message_to_vehicle_A(const char *msg)
     {
         // MQTTClient_waitForCompletion(client, token, TIMEOUT);
         printf("차량 A에게 메시지 송신 완료: %s\n", msg);
+    }
+    MQTTClient_yield();
+}
+void send_message_to_vehicle_B(const char *msg)
+{
+    MQTTClient_message pubmsg = MQTTClient_message_initializer;
+
+    pubmsg.payload = (void *)msg;
+    pubmsg.payloadlen = (int)strlen(msg);
+    pubmsg.qos = QOS;
+    pubmsg.retained = 0;
+
+    MQTTClient_deliveryToken token;
+    int rc = MQTTClient_publishMessage(client, TOPIC_PUB_B, &pubmsg, &token);
+    if (rc != MQTTCLIENT_SUCCESS)
+    {
+        fprintf(stderr, "차량 B에게 메시지 송신 실패: %d\n", rc);
+    }
+    else
+    {
+        // MQTTClient_waitForCompletion(client, token, TIMEOUT);
+        printf("차량 B에게 메시지 송신 완료: %s\n", msg);
     }
     MQTTClient_yield();
 }
@@ -50,6 +74,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     // JSON 파싱을 원한다면 여기서 파싱 가능 (예: r, c 좌표 추출)
     send_message_to_vehicle_A("move");
+    send_message_to_vehicle_B("move");
 
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -74,9 +99,10 @@ int main()
     }
 
     // vehicle/status 토픽을 구독
-    MQTTClient_subscribe(client, TOPIC_SUB, QOS);
+    MQTTClient_subscribe(client, TOPIC_CURRENT_A, QOS);
+    MQTTClient_subscribe(client, TOPIC_CURRENT_B, QOS);
 
-    printf("보관함 MQTT 수신 시작 (토픽: %s)...\n", TOPIC_SUB);
+    printf("보관함 MQTT 수신 시작 (토픽: %s)...\n", TOPIC_CURRENT_B);
 
     // 수신 대기 루프
     while (1)
