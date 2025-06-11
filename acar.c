@@ -72,8 +72,8 @@ static int grid[ROWS][COLS] = {
 static Point path[MAX_PATH];            // 계산된 경로 저장
 static int path_len = 0;                // 경로 길이
 static int path_idx = 0;                // 경로 인덱스
-static Point current_pos = {0, 0};      // B 차량 초기 위치
-static int dirA = SOUTH;                // B 차량 초기 방향
+static Point current_pos = {0, 0};      // A 차량 초기 위치
+static int dirA = SOUTH;                // A 차량 초기 방향
 static volatile int move_permission = 0;
 static volatile int is_waiting = 0;
 static char goalsA[] = {'K','G','S','W','A'};
@@ -201,15 +201,22 @@ int in_set(Node **set, int count, Point pt) {
 
 // 경로 복원
 void reconstruct_path(Node *curr) {
-    path_len = 0;
-    while (curr && path_len < MAX_PATH) {
-        path[path_len++] = curr->pt;
+    // 부모 링크를 따라 역방향으로 경로를 tmp에 저장
+    Point tmp[MAX_PATH];
+    int len = 0;
+    while (curr && len < MAX_PATH) {
+        tmp[len++] = curr->pt;
         curr = curr->parent;
     }
-    for (int i = 0; i < path_len/2; i++) {
-        Point tmp = path[i];
-        path[i] = path[path_len-1-i];
-        path[path_len-1-i] = tmp;
+    // 경로가 없으면 종료
+    if (len == 0) {
+        path_len = 0;
+        return;
+    }
+    // 시작 위치(tmp[len-1])를 제외한 실제 이동 경로를 순서대로 복원
+    path_len = len - 1;
+    for (int i = 0; i < path_len; i++) {
+        path[i] = tmp[len - 2 - i];
     }
 }
 
@@ -277,9 +284,8 @@ void publish_multi_status(Point *path, int idx, int len) {
     if (positions[strlen(positions)-1] == ',')
         positions[strlen(positions)-1] = '\0';
 
-    snprintf(payload, sizeof(payload),
-             "ID : %s POS: (%d,%d) PATH: [%s]",
-             ID,current_pos.r, current_pos.c, positions);
+        snprintf(payload, sizeof(payload), "POS: (%d,%d) PATH: [%s]",
+        current_pos.r, current_pos.c, positions);
     printf("[송신] A -> %s\n", payload);
 
     MQTTClient_message msg = MQTTClient_message_initializer;

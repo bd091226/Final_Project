@@ -35,6 +35,19 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lwiringPi
 #define COLS      9     // 열 개수
 #define MAX_PATH  100   // 최대 경로 길이
 
+// 모터 제어 핀 설정 (WiringPi BCM 모드)
+#define AIN1 22
+#define AIN2 27
+#define PWMA 18
+#define BIN1 25
+#define BIN2 24
+#define PWMB 23
+
+// 모터 동작 타이밍 (초)
+#define SECONDS_PER_GRID_STEP       1.1
+#define SECONDS_PER_90_DEG_ROTATION 0.8
+#define PRE_ROTATE_FORWARD_CM       8.0f
+
 // ID 정의
 #define ID        "B"
 
@@ -193,15 +206,22 @@ int in_set(Node **set, int count, Point pt) {
 
 // 경로 복원
 void reconstruct_path(Node *curr) {
-    path_len = 0;
-    while (curr && path_len < MAX_PATH) {
-        path[path_len++] = curr->pt;
+    // 부모 링크를 따라 역방향으로 경로를 tmp에 저장
+    Point tmp[MAX_PATH];
+    int len = 0;
+    while (curr && len < MAX_PATH) {
+        tmp[len++] = curr->pt;
         curr = curr->parent;
     }
-    for (int i = 0; i < path_len/2; i++) {
-        Point tmp = path[i];
-        path[i] = path[path_len-1-i];
-        path[path_len-1-i] = tmp;
+    // 경로가 없으면 종료
+    if (len == 0) {
+        path_len = 0;
+        return;
+    }
+    // 시작 위치(tmp[len-1])를 제외한 실제 이동 경로를 순서대로 복원
+    path_len = len - 1;
+    for (int i = 0; i < path_len; i++) {
+        path[i] = tmp[len - 2 - i];
     }
 }
 
