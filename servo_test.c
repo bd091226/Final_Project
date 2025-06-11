@@ -8,14 +8,28 @@
 #define PERIOD_MS 20          // 20ms 주기 (50Hz)
 
 // 각도에 따라 HIGH 시간 (us) 계산
+// int angle_to_pulse(int angle)
+// {
+//     if (angle < 0)
+//         angle = 0;
+//     if (angle > 180)
+//         angle = 180;
+//     return 500 + (angle * 2000 / 180); // 500~2500us
+// }
+
 int angle_to_pulse(int angle)
 {
-    if (angle < 0)
-        angle = 0;
-    if (angle > 180)
-        angle = 180;
-    return 500 + (angle * 2000 / 180); // 500~2500us
+    // -90 ~ +90 범위를 0 ~ 180으로 변환
+    if (angle < -90)
+        angle = -90;
+    if (angle > 90)
+        angle = 90;
+    
+    int mapped_angle = angle + 90; // -90 -> 0, 0 -> 90, 90 -> 180
+    
+    return 500 + (mapped_angle * 2000 / 180); // 500~2500us
 }
+
 
 void move_servo(struct gpiod_line *line, int angle)
 {
@@ -64,7 +78,7 @@ int main()
     sleep(1);
 
     printf("서보모터 90도\n");
-    move_servo(line, 70);
+    move_servo(line,90);
     sleep(1);
 
     printf("서보모터 0도\n");
