@@ -1,307 +1,267 @@
-// 상단은 동일
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include "MQTTClient.h"
+#include <stdio.h>                // 표준 입출력
+#include <stdlib.h>               // 메모리 할당, 변환 함수 등
+#include <string.h>               // 문자열 처리 함수
+#include <unistd.h>               // usleep 함수
+#include "MQTTClient.h"           // Paho MQTT C 클라이언트
 
-#define ADDRESS "tcp://localhost:1883"
-#define CLIENTID "Vehicle_B"
-#define TOPIC_PUB "vehicle/status_B"
-#define TOPIC_SUB "vehicle/storage/B"
-#define QOS 0
-#define TIMEOUT 10000L
+// 방향 정의
+#define NORTH   0    // 북쪽
+#define EAST    1    // 동쪽
+#define SOUTH   2    // 남쪽
+#define WEST    3    // 서쪽
 
-#define ROWS 7
-#define COLS 9
-#define MAX_PATH 100
+// MQTT 설정
+#define ADDRESS   "tcp://localhost:1883"  // 브로커 주소
+#define CLIENTID  "Vehicle_B"             // 클라이언트 ID
+#define TOPIC_PUB "vehicle/status_B"      // 상태 발행 토픽
+#define TOPIC_SUB "vehicle/storage/B"     // 제어 명령 구독 토픽
+#define QOS       0                         // QoS 레벨
+#define TIMEOUT   10000L                    // 연결 타임아웃 (ms)
 
-#define ID "B"
+// 그리드 및 경로 설정
+#define ROWS      7     // 행 개수
+#define COLS      9     // 열 개수
+#define MAX_PATH  100   // 최대 경로 길이
 
-int grid[ROWS][COLS] = {
-    {'A', 0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
-    {0, 1, 'S', 1, 0, 1, 'G', 1, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
-    {0, 1, 'K', 1, 0, 1, 'W', 1, 0},
-    {0, 0, 0, 0, 0, 0, 0, 0, 'B'}};
+// 점 좌표 구조체
+typedef struct { int r, c; } Point;
 
-typedef struct
-{
-    int r, c;
-} Point;
-typedef struct Node
-{
-    Point pt;
-    int g, h, f;
-    struct Node *parent;
+// A* 노드 구조체
+typedef struct Node {
+    Point pt;           // 현재 위치
+    int g, h, f;        // g: 시작->현재, h: 휴리스틱, f=g+h
+    struct Node *parent; // 부모 노드 포인터
 } Node;
 
-Point path[MAX_PATH];
-int path_len = 0;
-int path_idx = 0;
+// 전역 변수 선언
+static MQTTClient client;               // MQTT 클라이언트 핸들
+static int grid[ROWS][COLS] = {         // 맵: 0=이동, 1=장애물, 문자=특수 지점
+    {'A',0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'S',1,0,1,'G',1,0},
+    {0,0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'K',1,0,1,'W',1,0},
+    {0,0,0,0,0,0,0,0,'B'}
+};
+static Point path[MAX_PATH];           // 계산된 경로 저장
+static int   path_len    = 0;          // 경로 길이
+static int   path_idx    = 0;          // 경로 인덱스
+static Point current_pos = {6, 8};     // B 차량 초기 위치
+static int   dirB        = NORTH;      // B 차량 초기 방향
+static volatile int move_permission = 0; // 이동 허가 플래그
+static volatile int is_waiting       = 0; // 일시정지 플래그
+static volatile int need_replan      = 0; // 재탐색 플래그
+static char  goalsB[]    = {'W','B','S','B','G','B','K','B'}; // 목표 순서
 
-MQTTClient client;
-char goalsB[] = {'W', 'B', 'S', 'B', 'G', 'B', 'K', 'B'};
-Point current_pos = {6, 8};
+// 함수 프로토타입
+Point  find_point_by_char(char ch);
+int    heuristic(Point a, Point b);
+int    is_valid(int r, int c);
+int    points_equal(Point a, Point b);
+Node  *find_lowest_f(Node **open_set, int count);
+int    in_set(Node **set, int count, Point pt);
+void   reconstruct_path(Node *curr);
+int    astar(Point start, Point goal);
+void   publish_status(Point *path, int idx, int len);
+void   print_grid_with_dir(Point pos, int dir);
+int    msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message);
 
-volatile int move_permission = 0; // 원래는 0으로 바꿔야함 지금은 테스트중이기 때문에 1로
-volatile int is_waiting = 0;
-volatile int need_replan = 0;
-
-int heuristic(Point a, Point b) { return abs(a.r - b.r) + abs(a.c - b.c); }
-
-int is_valid(int r, int c)
-{
-    if (r < 0 || r >= ROWS || c < 0 || c >= COLS)
-        return 0;
-    if (grid[r][c] == 1)
-        return 0;
-    return 1;
+// 휴리스틱: 맨해튼 거리
+int heuristic(Point a, Point b) {
+    return abs(a.r - b.r) + abs(a.c - b.c);
 }
 
-int points_equal(Point a, Point b) { return a.r == b.r && a.c == b.c; }
-
-Node *find_lowest_f(Node **open_set, int count)
-{
-    Node *lowest = open_set[0];
-    for (int i = 1; i < count; i++)
-        if (open_set[i]->f < lowest->f)
-            lowest = open_set[i];
-    return lowest;
+// 유효한 셀 확인
+int is_valid(int r, int c) {
+    return (r>=0 && r<ROWS && c>=0 && c<COLS && grid[r][c] != 1);
 }
 
-int in_set(Node **set, int count, Point pt)
-{
-    for (int i = 0; i < count; i++)
-        if (points_equal(set[i]->pt, pt))
-            return i;
+// 좌표 동일 여부 확인
+int points_equal(Point a, Point b) {
+    return (a.r == b.r && a.c == b.c);
+}
+
+// open_set 중 최소 f 노드 선택
+Node *find_lowest_f(Node **open_set, int count) {
+    Node *best = open_set[0];
+    for (int i = 1; i < count; i++) {
+        if (open_set[i]->f < best->f) best = open_set[i];
+    }
+    return best;
+}
+
+// 배열 내 좌표 존재 검사
+int in_set(Node **set, int count, Point pt) {
+    for (int i = 0; i < count; i++) {
+        if (points_equal(set[i]->pt, pt)) return i;
+    }
     return -1;
 }
 
-void reconstruct_path(Node *current)
-{
+// 경로 복원
+void reconstruct_path(Node *curr) {
     path_len = 0;
-    while (current && path_len < MAX_PATH)
-    {
-        path[path_len++] = current->pt;
-        current = current->parent;
+    while (curr && path_len < MAX_PATH) {
+        path[path_len++] = curr->pt;
+        curr = curr->parent;
     }
-    for (int i = 0; i < path_len / 2; i++)
-    {
+    // 경로 역순 뒤집기
+    for (int i = 0; i < path_len/2; i++) {
         Point tmp = path[i];
-        path[i] = path[path_len - 1 - i];
-        path[path_len - 1 - i] = tmp;
+        path[i] = path[path_len-1-i];
+        path[path_len-1-i] = tmp;
     }
 }
 
-int astar(Point start, Point goal)
-{
-    Node *open_set[ROWS * COLS];
-    int open_count = 0;
-    Node *closed_set[ROWS * COLS];
-    int closed_count = 0;
+// A* 경로 탐색 구현
+int astar(Point start, Point goal) {
+    Node *open_set[ROWS*COLS]; int open_count = 0;
+    Node *closed_set[ROWS*COLS]; int closed_count = 0;
 
-    Node *start_node = malloc(sizeof(Node));
-    start_node->pt = start;
-    start_node->g = 0;
-    start_node->h = heuristic(start, goal);
-    start_node->f = start_node->g + start_node->h;
-    start_node->parent = NULL;
-    open_set[open_count++] = start_node;
+    Node *sn = malloc(sizeof(Node));
+    sn->pt     = start;
+    sn->g      = 0;
+    sn->h      = heuristic(start, goal);
+    sn->f      = sn->g + sn->h;
+    sn->parent = NULL;
+    open_set[open_count++] = sn;
 
-    while (open_count > 0)
-    {
-        Node *current = find_lowest_f(open_set, open_count);
-        if (points_equal(current->pt, goal))
-        {
-            reconstruct_path(current);
-            goto cleanup;
+    while (open_count > 0) {
+        Node *curr = find_lowest_f(open_set, open_count);
+        if (points_equal(curr->pt, goal)) {
+            reconstruct_path(curr);
+            break;
         }
+        int idx = in_set(open_set, open_count, curr->pt);
+        open_set[idx] = open_set[--open_count];
+        closed_set[closed_count++] = curr;
 
-        int cur_idx = -1;
-        for (int i = 0; i < open_count; i++)
-            if (open_set[i] == current)
-            {
-                cur_idx = i;
-                break;
-            }
-        for (int i = cur_idx; i < open_count - 1; i++)
-            open_set[i] = open_set[i + 1];
-        open_count--;
+        int dr[4] = {-1,1,0,0}, dc[4] = {0,0,-1,1};
+        for (int i = 0; i < 4; i++) {
+            Point np = { curr->pt.r + dr[i], curr->pt.c + dc[i] };
+            if (!is_valid(np.r, np.c)) continue;
+            if (in_set(closed_set, closed_count, np) != -1) continue;
 
-        closed_set[closed_count++] = current;
-
-        int dr[4] = {-1, 1, 0, 0}, dc[4] = {0, 0, -1, 1};
-        for (int i = 0; i < 4; i++)
-        {
-            int nr = current->pt.r + dr[i], nc = current->pt.c + dc[i];
-            if (!is_valid(nr, nc))
-                continue;
-            if (in_set(closed_set, closed_count, (Point){nr, nc}) != -1)
-                continue;
-
-            int tentative_g = current->g + 1;
-            int open_idx = in_set(open_set, open_count, (Point){nr, nc});
-            if (open_idx == -1)
-            {
-                Node *neighbor = malloc(sizeof(Node));
-                neighbor->pt = (Point){nr, nc};
-                neighbor->g = tentative_g;
-                neighbor->h = heuristic(neighbor->pt, goal);
-                neighbor->f = neighbor->g + neighbor->h;
-                neighbor->parent = current;
-                open_set[open_count++] = neighbor;
-            }
-            else if (tentative_g < open_set[open_idx]->g)
-            {
-                open_set[open_idx]->g = tentative_g;
-                open_set[open_idx]->f = tentative_g + open_set[open_idx]->h;
-                open_set[open_idx]->parent = current;
+            int ng = curr->g + 1;
+            int found = in_set(open_set, open_count, np);
+            if (found == -1) {
+                Node *nn = malloc(sizeof(Node));
+                nn->pt     = np;
+                nn->g      = ng;
+                nn->h      = heuristic(np, goal);
+                nn->f      = nn->g + nn->h;
+                nn->parent = curr;
+                open_set[open_count++] = nn;
+            } else if (ng < open_set[found]->g) {
+                open_set[found]->g      = ng;
+                open_set[found]->f      = ng + open_set[found]->h;
+                open_set[found]->parent = curr;
             }
         }
     }
 
-cleanup:
-    for (int i = 0; i < open_count; i++)
-        free(open_set[i]);
-    for (int i = 0; i < closed_count; i++)
-        free(closed_set[i]);
-    return path_len > 0;
+    for (int i = 0; i < open_count; i++)   free(open_set[i]);
+    for (int i = 0; i < closed_count; i++) free(closed_set[i]);
+
+    return (path_len > 0);
 }
 
-void publish_multi_status(Point *path, int idx, int len)
-{
-    char payload[256];
-    char positions[128] = "";
-    int count = 0;
-
-    for (int i = idx - 1; i <= len && count < 4; i++)
-    {
-        if (i < 0)
-            snprintf(positions + strlen(positions), sizeof(positions) - strlen(positions),
-                     "(%d,%d),", current_pos.r, current_pos.c);
-        else
-            snprintf(positions + strlen(positions), sizeof(positions) - strlen(positions),
-                     "(%d,%d),", path[i].r, path[i].c);
-        count++;
+// 상태 발행 함수 (방향 로직 추가)
+void publish_status(Point *path, int idx, int len) {
+    char payload[256], pts[128] = "";
+    int cnt = 0;
+    for (int i = idx; i < idx+4 && i < len; i++, cnt++) {
+        sprintf(pts+strlen(pts), "(%d,%d)%s", path[i].r, path[i].c, (i<idx+3)?",":"");
     }
+    // 포맷: POS: (r,c) PATH: [..]
+    sprintf(payload, "POS: (%d,%d) PATH: [%s]", current_pos.r, current_pos.c, pts);
+    printf("[송신] B -> %s\n", payload);
 
-    // 마지막 콤마 제거
-    if (positions[strlen(positions) - 1] == ',')
-        positions[strlen(positions) - 1] = '\0';
-
-    // 현재 위치는 current_pos로 가정, 실제 변수명에 맞게 수정하세요
-    snprintf(payload, sizeof(payload),
-             "POS: (%d,%d) PATH: [%s]", current_pos.r, current_pos.c, positions);
-
-    printf("[송신] : B path -> %s\n", payload);
-
-    MQTTClient_message pubmsg = MQTTClient_message_initializer;
-    pubmsg.payload = payload;
-    pubmsg.payloadlen = (int)strlen(payload);
-    pubmsg.qos = QOS;
-    pubmsg.retained = 0;
-
-    MQTTClient_deliveryToken token;
-    MQTTClient_publishMessage(client, TOPIC_PUB, &pubmsg, &token);
+    MQTTClient_message msg = MQTTClient_message_initializer;
+    msg.payload    = payload;
+    msg.payloadlen = strlen(payload);
+    msg.qos        = QOS;
+    msg.retained   = 0;
+    MQTTClient_publishMessage(client, TOPIC_PUB, &msg, NULL);
 }
 
-Point find_point_by_char(char ch)
-{
-    for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++)
+// 그리드 및 방향 출력
+void print_grid_with_dir(Point pos, int dir) {
+    char arr[4] = {'^','>','v','<'};
+    printf("   "); for (int c=0; c<COLS; c++) printf("%d ",c); puts("");
+    for (int r=0; r<ROWS; r++) {
+        printf("%d: ",r);
+        for (int c=0; c<COLS; c++) {
+            if (r==pos.r && c==pos.c) printf("%c ", arr[dir]);
+            else if (grid[r][c]==1)    printf("# ");
+            else                        printf(". ");
+        }
+        puts("");
+    }
+    puts("");
+}
+
+// 좌표 찾기
+Point find_point_by_char(char ch) {
+    for (int r = 0; r < ROWS; r++) {
+        for (int c = 0; c < COLS; c++) {
             if (grid[r][c] == ch)
                 return (Point){r, c};
+        }
+    }
     return (Point){-1, -1};
 }
 
-int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
-{
-    char msg[message->payloadlen + 1];
-    memcpy(msg, message->payload, message->payloadlen);
-    msg[message->payloadlen] = '\0';
-
-    if (strcmp(msg, "move") == 0)
-    {
-        is_waiting = 0;
-        move_permission = 1;
-        printf(">> move 명령 수신됨\n");
+// 콜백 처리
+int msgarrvd(void *context, char *topic, int tlen, MQTTClient_message *message) {
+    char buf[message->payloadlen+1];
+    memcpy(buf, message->payload, message->payloadlen);
+    buf[message->payloadlen]='\0';
+    printf("[수신] %s\n", buf);
+    if (!strcmp(buf,"move")) {
+        is_waiting=0; move_permission=1; puts(">> move");
+    } else if (!strcmp(buf,"wait")) {
+        is_waiting=1; puts(">> wait");
+    } else if (!strcmp(buf,"replan")) {
+        need_replan=1; puts(">> replan");
     }
-    else if (strcmp(msg, "wait") == 0)
-    {
-        is_waiting = 1;
-        printf(">> wait 명령 수신됨\n");
-    }
-    else if (strcmp(msg, "replan") == 0)
-    {
-        need_replan = 1;
-        printf(">> replan 명령 수신됨\n");
-    }
-
     MQTTClient_freeMessage(&message);
-    MQTTClient_free(topicName);
+    MQTTClient_free(topic);
     return 1;
 }
 
-int main()
-{
-    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+int main(void) {
+    MQTTClient_connectOptions opts=MQTTClient_connectOptions_initializer;
     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
+    MQTTClient_setCallbacks(client,NULL,NULL,msgarrvd,NULL);
+    if (MQTTClient_connect(client,&opts)!=MQTTCLIENT_SUCCESS) {
+        fprintf(stderr,"MQTT 연결 실패\n"); return 1; }
+    MQTTClient_subscribe(client,TOPIC_SUB,QOS);
 
-    if (MQTTClient_connect(client, &conn_opts) != MQTTCLIENT_SUCCESS)
-    {
-        fprintf(stderr, "MQTT 연결 실패\n");
-        return 1;
-    }
+    int n = sizeof(goalsB)/sizeof(goalsB[0]);
+    for (int i=0; i<n; i++) {
+        Point g = find_point_by_char(goalsB[i]);
+        if (!astar(current_pos,g)) { printf("경로 탐색 실패: %c\n",goalsB[i]); continue; }
+        path_idx=0; publish_status(path,path_idx,path_len);
+        while(path_idx<path_len) {
+            while(is_waiting||!move_permission) { MQTTClient_yield(); usleep(100000); }
+            move_permission=0;
 
-    MQTTClient_subscribe(client, TOPIC_SUB, QOS);
+            // 방향 제어 및 이동
+            Point nxt = path[path_idx];
+            int td = (nxt.r<current_pos.r?NORTH: nxt.r>current_pos.r?SOUTH:
+                      nxt.c>current_pos.c?EAST:WEST);
+            int diff = (td - dirB + 4) % 4; if(diff==3) diff=-1;
+            if(diff<0) { puts("[B] TURN_LEFT"); dirB=(dirB+diff+4)%4; }
+            else if(diff>0) { puts("[B] TURN_RIGHT"); dirB=(dirB+diff)%4; }
+            else { puts("[B] FORWARD"); current_pos=nxt; path_idx++; }
 
-    int goal_count = sizeof(goalsB) / sizeof(goalsB[0]);
-    for (int goal_i = 0; goal_i < goal_count; goal_i++)
-    {
-        Point goal = find_point_by_char(goalsB[goal_i]);
-        if (!astar(current_pos, goal))
-        {
-            printf("경로 탐색 실패: %c\n", goalsB[goal_i]);
-            continue;
-        }
-
-        path_idx = 0;
-        publish_multi_status(path, path_idx, path_len);
-
-        while (path_idx < path_len)
-        {
-            while (is_waiting || !move_permission)
-            {
-                MQTTClient_yield();
-                usleep(100 * 1000);
-            }
-
-            move_permission = 0;
-
-            // if (need_replan)
-            // {
-            //     printf(">> 경로 재계산 수행 중...\n");
-            //     need_replan = 0;
-            //     if (!astar(current_pos, goal))
-            //     {
-            //         printf("재탐색 실패\n");
-            //         break;
-            //     }
-            //     path_idx = 0;
-            //     publish_multi_status(path, path_idx, path_len);
-            //     continue;
-            // }
-
-            current_pos = path[path_idx++];
-            publish_multi_status(path, path_idx, path_len);
+            publish_status(path,path_idx,path_len);
+            print_grid_with_dir(current_pos, dirB);
         }
     }
-
-    MQTTClient_disconnect(client, 10000);
+    MQTTClient_disconnect(client, TIMEOUT);
     MQTTClient_destroy(&client);
     return 0;
 }
