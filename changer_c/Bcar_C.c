@@ -9,6 +9,7 @@
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장
 #define TOPIC_B_DEST "storage/b_dest" // B차 목적지 토픽
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived" 
+#define TOPIC_B_HOME        "storage/b_home"
 #define TOPIC_B_HOME_ARRIVED   "storage/b_home_arrived"
 #define QOS 1
 #define TIMEOUT 10000L
