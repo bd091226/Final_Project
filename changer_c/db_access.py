@@ -32,8 +32,9 @@ def qr_insert(cursor, conn, type_, product_type):
         return
 
     try:
+        # 1) 해당 구역 포화 여부 조회
         cursor.execute(
-            "SELECT 포화_여부 FROM 구역 WHERE 구역_ID = %s",
+            "SELECT is_full FROM region WHERE region_id = %s",
             (zone,)
         )
         result = cursor.fetchone()
@@ -45,10 +46,11 @@ def qr_insert(cursor, conn, type_, product_type):
             print(f"❌ 구역 '{type_}'({zone})은 현재 포화 상태입니다. 등록할 수 없습니다.")
             return
 
+        # 2) 택배 테이블에 새 건 등록
         cursor.execute(
             """
-            INSERT INTO 택배 (택배_종류, 구역_ID, 현재_상태)
-            VALUES (%s, %s, '등록됨')
+            INSERT INTO package (package_type, region_id, package_status)  -- 택배_종류, 구역, 상태 컬럼 지정
+            VALUES (%s, %s, 'registered')                                 -- '등록됨' 상태로 삽입
             """,
             (product_type, zone)
         )
@@ -59,21 +61,23 @@ def qr_insert(cursor, conn, type_, product_type):
     except Exception as e:
         print(f"❌ QR 등록 중 오류: {e}")
 
+
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
 # 수정필요!!! 임시로 차량 ID를 고정해놓음
 def button_A(cursor, conn, count, 차량_ID):
     try:
-        # 1. 등록된 택배 중 가장 오래된 택배 1개 조회
+        # 1) 가장 오래된 '등록됨' 택배 조회
         cursor.execute(
             """
-            SELECT s.택배_ID, s.구역_ID, s.등록_시각
-            FROM 택배 s
-            WHERE s.현재_상태 = '등록됨'
-                AND NOT EXISTS (
-                SELECT 1 FROM 운행_택배 us WHERE us.택배_ID = s.택배_ID
-            )
-            ORDER BY s.택배_ID ASC
-            LIMIT 1
+            SELECT s.package_id, s.region_id, s.registered_at      -- ID, 구역, 등록 시각
+            FROM package s                                       -- 택배 테이블
+            WHERE s.package_status = 'registered'                -- 상태 필터
+              AND NOT EXISTS (                                   -- 이미 실린 건 제외
+                  SELECT 1 FROM delivery_log us
+                  WHERE us.package_id = s.package_id
+              )
+            ORDER BY s.package_id ASC                             -- 오름차순 정렬
+            LIMIT 1                                              -- 한 건
             """
         )
         product = cursor.fetchone()
@@ -81,82 +85,88 @@ def button_A(cursor, conn, count, 차량_ID):
             print("❌ 등록된 택배 중 실을 수 있는 택배가 없습니다.")
             return -1
 
-        product_id, 구역_ID, 등록_시각 = product
+        product_id, region_id, registered_at = product
 
-        # 2. count == 1 → 운행 생성, else → 기존 운행 사용
+        # 2) count == 1 → 새 운행 생성, else → 기존 비운행중 운행 사용
         if count == 1:
-            # 새 운행 생성
+            # 새 운행 기록 생성 (비운행중 상태)
             cursor.execute("""
-                INSERT INTO 운행_기록 (차량_ID, 운행_상태)
-                VALUES (%s, '비운행중')
+                INSERT INTO trip_log (vehicle_id, status)         -- trip_log 테이블에 삽입
+                VALUES (%s, '비운행중')                           -- 비운행중 상태로 대기
             """, (차량_ID,))
-            운행_ID = cursor.lastrowid
-            print(f"✅ 새 운행 생성 완료: 운행_ID={운행_ID}, 차량_ID={차량_ID}")
-
+            trip_id = cursor.lastrowid
+            print(f"✅ 새 운행 생성 완료: trip_id={trip_id}, vehicle_id={차량_ID}")
         else:
-            # count > 1 → 이전 운행_기록에서 꺼내기
+            # count > 1 → 기존 '비운행중' 운행 기록 조회
             cursor.execute("""
-                SELECT 운행_ID FROM 운행_기록
-                WHERE 차량_ID = %s
-                    AND 운행_상태 = '비운행중'
-                    AND 운행_시작 IS NULL
-                ORDER BY 운행_ID DESC
-                LIMIT 1
+                SELECT trip_id                              -- trip_id 조회
+                FROM trip_log                               -- trip_log 테이블
+                WHERE vehicle_id = %s                       -- 차량 필터
+                  AND status     = '비운행중'                -- 비운행중 상태만
+                  AND start_time IS NULL                    -- 아직 출발 전인 운행만
+                ORDER BY trip_id DESC                       -- 최신 순 정렬
+                LIMIT 1                                     -- 한 건만
             """, (차량_ID,))
             row = cursor.fetchone()
             if not row:
                 print("❌ 이전 운행_ID 없음 (count > 1인데 기존 운행 찾기 실패)")
                 return -1
-            운행_ID = row[0]
-            print(f"🔄 기존 운행_ID 사용: {운행_ID}")
+            trip_id = row[0]
+            print(f"🔄 기존 운행_ID 사용: {trip_id}")
 
-        # 3. 운행_택배 등록
+        # 3) delivery_log 테이블에 매핑 삽입
         cursor.execute(
             """
-            INSERT INTO 운행_택배 (
-                운행_ID, 택배_ID, 구역_ID, 적재_순번, 등록_시각
-            ) VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO delivery_log (
+                trip_id, package_id, region_id, load_order, registered_at
+            ) VALUES (
+                %s, %s, %s, %s, %s           -- 운행_ID, 택배_ID, 구역, 순번, 등록 시각
+            )
             """,
-            (운행_ID, product_id, 구역_ID, count, 등록_시각)
+            (trip_id, product_id, region_id, count, registered_at)
         )
-        print(f"✅ 운행_택배 등록 완료: 택배 {product_id} → 운행 {운행_ID}, 순번 {count}")
+        print(f"✅ 운행_택배 등록 완료: package {product_id} → trip {trip_id}, 순번 {count}")
 
-        # 4. 차량 적재 수량 업데이트
+        # 4) A차 차량 적재 수량 및 LED 상태 업데이트
         if 차량_ID.startswith('A-'):
             cursor.execute(
                 """
-                UPDATE 차량 
-                SET 현재_적재_수량 = %s,
-                    LED_상태 = CASE WHEN %s = 최대_적재_수량 THEN '빨강' ELSE LED_상태 END
-                WHERE 차량_ID = %s
+                UPDATE vehicle                    -- vehicle 테이블
+                SET current_load = %s,            -- 현재 적재 수량 설정
+                led_status   = CASE 
+                WHEN %s = max_load THEN '빨강' 
+                    ELSE led_status 
+                    END                           -- 만차 시 빨강 표시
+                WHERE vehicle_id = %s             -- 해당 차량 필터
                 """,
                 (count, count, 차량_ID)
             )
             print(f"✅ A차 적재 수량 업데이트 완료: {count}개")
 
         conn.commit()
-        print(운행_ID)
-        return 운행_ID
+        print(trip_id)
+        return trip_id
 
     except Exception as e:
         print(f"❌ 적재 수량 및 운행 등록 실패: {e}")
         return -1
+
 
 # A차 차량_ID의 현재_적재_수량을 반환하는 함수
 # 수정필요!!
 def get_A_count(cursor, 차량_ID='A-1000'):
     try:
         cursor.execute("""
-            SELECT 현재_적재_수량
-            FROM 차량
-            WHERE 차량_ID = %s
+            SELECT current_load              -- 차량 적재 수량 조회
+            FROM vehicle                    -- vehicle 테이블
+            WHERE vehicle_id = %s           -- 해당 차량 필터
         """, (차량_ID,))
         result = cursor.fetchone()
         return result[0] if result else None
     except Exception as e:
         print(f"❌ 적재 수량 조회 실패 (차량 {차량_ID}): {e}")
         return None
-    
+
 # A차 QR에서 출발했다는 신호를 수신 시
 # 수정필요!!
 def departed_A(conn, cursor, 차량_ID):
@@ -166,190 +176,164 @@ def departed_A(conn, cursor, 차량_ID):
     - 차량의 '비운행중' 상태이지만 아직 출발하지 않은 운행(운행_시작 IS NULL)을 출발 처리
     """
     try:
-        # 1. 택배 상태 업데이트
+        # 1) 택배 상태 & A차운송 시각 업데이트
         cursor.execute("""
-            UPDATE 택배
-            JOIN 운행_택배 USING (택배_ID)
-            JOIN 운행_기록 USING (운행_ID)
-            SET 택배.현재_상태 = 'A차운송중',
-                운행_택배.A차운송_시각 = NOW()
-            WHERE 운행_기록.차량_ID = %s
-                AND 택배.현재_상태 = '등록됨'
-                AND 운행_기록.운행_시작 IS NULL
-                AND 운행_기록.운행_상태 = '비운행중'
+            UPDATE package                         -- 택배 테이블
+            JOIN delivery_log USING (package_id)   -- delivery_log 테이블 조인
+            JOIN trip_log      USING (trip_id)     -- trip_log 테이블 조인
+            SET package_status           = 'A_transport',       -- 상태를 A차운송중으로
+                delivery_log.first_transport_time = NOW()        -- A차 첫 운송 시각 기록
+            WHERE trip_log.vehicle_id    = %s                  -- 해당 차량 필터
+              AND package_status         = 'registered'        -- 등록된 택배만
+              AND trip_log.start_time    IS NULL               -- 아직 출발 전인 운행
+              AND trip_log.status        = '비운행중'           -- 대기 상태인 운행
         """, (차량_ID,))
 
-        # 2. 운행 상태 '운행중' + 출발 시간 기록
+        # 2) 운행 기록 출발 시간 & 상태 변경
         cursor.execute("""
-            UPDATE 운행_기록
-            SET 운행_시작 = NOW(),
-                운행_상태 = '운행중'
-            WHERE 차량_ID = %s
-                AND 운행_상태 = '비운행중'
-                AND 운행_시작 IS NULL
+            UPDATE trip_log                      -- trip_log 테이블
+            SET start_time = NOW(),              -- 출발 시각 기록
+                status     = '운행중'             -- 상태를 운행중으로
+            WHERE vehicle_id = %s                -- 해당 차량 필터
+              AND status     = '비운행중'          -- 대기 상태인 운행
+              AND start_time IS NULL              -- 아직 출발 전 필터
         """, (차량_ID,))
 
-        # 3. 차량 LED 상태를 '노랑'으로 설정
+        # 3) 차량 LED 상태를 노랑으로 변경
         cursor.execute("""
-            UPDATE 차량
-            SET LED_상태 = '노랑'
-            WHERE 차량_ID = %s
+            UPDATE vehicle                       -- vehicle 테이블
+            SET led_status = '노랑'               -- LED를 노랑으로
+            WHERE vehicle_id = %s               -- 해당 차량 필터
         """, (차량_ID,))
-        
+
         conn.commit()
-        print(f"✅ 차량 {차량_ID} 출발 처리 완료 → 운행_시작 설정, 택배 상태 변경, LED='노랑'")
+        print(f"✅ 차량 {차량_ID} 출발 처리 완료 → 운행 시작 설정, 택배 상태 변경, LED='노랑'")
     except Exception as e:
         print(f"❌ departed_A 실패 (차량 {차량_ID}): {e}")
-        
+
+
 # A차 목적지 찾기
 def A_destination(운행_ID):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT 구역_ID
-                FROM 운행_택배
-                WHERE 운행_ID = %s 
-                    AND A차운송_시각 IS NOT NULL 
-                    AND 투입_시각 IS NULL
-                ORDER BY 적재_순번 ASC
-                LIMIT 1
+                SELECT region_id                          -- 다음 투입할 구역 ID
+                FROM delivery_log                        -- delivery_log 테이블
+                WHERE trip_id              = %s         -- 해당 운행 필터
+                  AND first_transport_time IS NOT NULL  -- A차 운송이 완료된 건
+                  AND input_time           IS NULL      -- 아직 투입되지 않은 건
+                ORDER BY load_order ASC                -- 적재 순번 오름차순
+                LIMIT 1                                -- 한 건만
             """, (운행_ID,))
             row = cur.fetchone()
             return row[0] if row else None
     finally:
         conn.close()
 
+
 # A차가 보관함에 도착할 시
 # 구역_ID는 나중에 A차의 목적지가 어디인지 알아내서 바꿔야할 것
 # 수정필요!!
-def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID): 
+def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
     """
     - 구역 보관 수량 초과 여부 확인
     - 차량 적재량 1 감소
     - 구역 보관 수량 1 증가
-    - 운행_택배의 '투입됨', 투입_시각 기록, 택배의 'A차운송중' 변화
+    - 운행_택배의 '투입됨', 투입 시각 기록, 택배의 'A차운송중' 변화
     - 보관 수량 확인 후 포화 여부 업데이트
-    - 포화 업데이트시 포화_시각 기록
+    - 포화 업데이트시 포화 시각 기록
     """
     try:
-        # 보관 수량 초과 여부 확인
-        cursor.execute(
-            """
-            SELECT 현재_보관_수량, 최대_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
-            """,
-            (구역_ID,)
-        )
+        # 1) 구역 현재/최대 보관 수량 조회
+        cursor.execute("""
+            SELECT current_capacity, max_capacity   -- 현재 및 최대 보관 수량
+            FROM region                            -- region 테이블
+            WHERE region_id = %s                   -- 해당 구역 필터
+        """, (구역_ID,))
         current, maximum = cursor.fetchone()
         if current >= maximum:
             print(f"❌ 보관 수량 초과: 현재 {current}, 최대 {maximum}")
             return
 
-        # 차량 적재 수량 1 감소
-        cursor.execute(
-            """
-            UPDATE 차량
-            SET 현재_적재_수량 = GREATEST(현재_적재_수량 - 1, 0)
-            WHERE 차량_ID = %s
-            """,
-            (차량_ID,)
-        )
+        # 2) 차량의 적재 수량 1 감소
+        cursor.execute("""
+            UPDATE vehicle                         -- vehicle 테이블
+            SET current_load = GREATEST(current_load - 1, 0)  -- 적재 수량 감소
+            WHERE vehicle_id = %s                  -- 해당 차량 필터
+        """, (차량_ID,))
 
-        # 구역 보관 수량 1 증가
-        cursor.execute(
-            """
-            UPDATE 구역
-            SET 현재_보관_수량 = 현재_보관_수량 + 1
-            WHERE 구역_ID = %s
-            """,
-            (구역_ID,)
-        )
+        # 3) 구역의 보관 수량 1 증가
+        cursor.execute("""
+            UPDATE region                          -- region 테이블
+            SET current_capacity = current_capacity + 1         -- 보관 수량 증가
+            WHERE region_id = %s                   -- 해당 구역 필터
+        """, (구역_ID,))
 
-        # 현재 진행 중인 운행_ID 조회
-        cursor.execute(
-            """
-            SELECT 운행_ID
-            FROM 운행_기록
-            WHERE 차량_ID = %s AND 운행_상태 = '운행중'
-            ORDER BY 운행_ID DESC
-            LIMIT 1
-            """,
-            (차량_ID,)
-        )
+        # 4) 현재 진행 중인 trip_id 조회
+        cursor.execute("""
+            SELECT trip_id                          -- 운행 ID 조회
+            FROM trip_log                          -- trip_log 테이블
+            WHERE vehicle_id = %s AND status = '운행중'  -- 운행 중인 기록
+            ORDER BY trip_id DESC                  -- 최신 건
+            LIMIT 1                                -- 한 건만
+        """, (차량_ID,))
         result = cursor.fetchone()
         if not result:
             print("❌ 운행중인 운행이 없습니다.")
             return
         운행_ID = result[0]
 
-        # 운행_택배 + 택배 상태 업데이트
-        cursor.execute(
-            """
-            UPDATE 택배
-            JOIN 운행_택배 USING (택배_ID)
-            SET 택배.현재_상태 = '투입됨',
-                운행_택배.투입_시각 = NOW()
-            WHERE 택배.택배_ID = (
-                SELECT 택배_ID FROM (
-                    SELECT 택배_ID
-                    FROM 운행_택배
-                    WHERE 운행_ID = %s AND 구역_ID = %s AND 투입_시각 IS NULL
-                    LIMIT 1
-                ) AS sub
-            );
-            """,
-            (운행_ID, 구역_ID)
-        )
+        # 5) 택배 상태를 '투입됨'으로 변경 및 투입 시각 기록
+        cursor.execute("""
+            UPDATE package                         -- package 테이블
+            JOIN delivery_log USING (package_id)   -- delivery_log 조인
+            SET package_status = 'input',           -- 상태 변경
+                delivery_log.input_time = NOW()     -- 투입 시각 기록
+            WHERE delivery_log.trip_id  = %s        -- 해당 운행 필터
+              AND delivery_log.region_id = %s       -- 해당 구역 필터
+              AND delivery_log.input_time IS NULL  -- 아직 투입 전 필터
+        """, (운행_ID, 구역_ID))
 
-
-        # 보관 수량 확인 후 포화 여부 업데이트
-        cursor.execute(
-            """
-            SELECT 현재_보관_수량, 최대_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
-            """,
-            (구역_ID,)
-        )
+        # 6) 구역 포화 여부 및 시각 업데이트
+        cursor.execute("""
+            SELECT current_capacity, max_capacity   -- 재조회용 현재/최대 수량
+            FROM region
+            WHERE region_id = %s
+        """, (구역_ID,))
         current, maximum = cursor.fetchone()
-
         포화값 = 1 if current == maximum else 0
 
-        cursor.execute(
-            """
-            UPDATE 구역
-            SET 포화_여부 = %s
-            WHERE 구역_ID = %s
-            """,
-            (포화값, 구역_ID)
-        )
+        cursor.execute("""
+            UPDATE region                          -- 포화 여부 설정
+            SET is_full = %s                       -- 포화 여부 컬럼
+            WHERE region_id = %s                   -- 해당 구역 필터
+        """, (포화값, 구역_ID))
 
-        # 포화_여부가 1로 바뀌었을 때만 포화_시각을 기록
         if 포화값 == 1:
-            cursor.execute(
-                """
-                UPDATE 구역
-                SET 포화_시각 = NOW()
-                WHERE 구역_ID = %s
-                """,
-                (구역_ID,)
-            )
-            
+            cursor.execute("""
+                UPDATE region                      -- 포화 시각 기록
+                SET saturated_at = NOW()           -- 현재 시각
+                WHERE region_id = %s               -- 해당 구역 필터
+            """, (구역_ID,))
+
         conn.commit()
         print(f"✅ 차량 {차량_ID} → 구역 {구역_ID} 도착 처리 완료 (적재↓, 보관↑, 상태→투입됨)")
     except Exception as e:
-        print(f"❌ 차량 {차량_ID} 도착 처리 실패: {e}")
+        print(f"❌ zone_arrival_A 실패 (차량 {차량_ID}): {e}")
 
 # A차 운행 완전 종료 (QR 지점으로 도착했을때)
+# 수정 필요!!
 def end_A(cursor, conn, 차량_ID='A-1000'):
     try:
-        # 1. 현재 A차의 운행 중인 운행_ID 가져오기
+        # 1) trip_log에서 현재 운행중인 trip_id 조회
         cursor.execute("""
-            SELECT 운행_ID FROM 운행_기록
-            WHERE 차량_ID = %s AND 운행_상태 = '운행중'
-            ORDER BY 운행_ID DESC LIMIT 1
+            SELECT trip_id                         -- 운행 ID
+            FROM trip_log                         -- 운행 기록 테이블
+            WHERE vehicle_id = %s                 -- 해당 차량 필터
+              AND status     = '운행중'            -- 운행 중인 상태
+            ORDER BY trip_id DESC                  -- 최신 순 정렬
+            LIMIT 1                                -- 한 건만
         """, (차량_ID,))
         row = cursor.fetchone()
         if not row:
@@ -357,26 +341,28 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
             return
         운행_ID = row[0]
 
-        # 2. 미투입 택배가 있는지 확인
+        # 2) 미투입 택배 건수 확인
         cursor.execute("""
-            SELECT COUNT(*) FROM 운행_택배
-            WHERE 운행_ID = %s AND 투입_시각 IS NULL
+            SELECT COUNT(*)                       -- 미투입 택배 수
+            FROM delivery_log                     -- 운행-택배 매핑 테이블
+            WHERE trip_id        = %s             -- 해당 운행 필터
+              AND input_time     IS NULL          -- 아직 투입되지 않은 택배
         """, (운행_ID,))
         남은_건수 = cursor.fetchone()[0]
 
         if 남은_건수 == 0:
-            # 운행 종료 처리
+            # 3) trip_log 종료 처리: end_time 기록, status를 '비운행중'으로
             cursor.execute("""
-                UPDATE 운행_기록
-                SET 종료_시각 = NOW(),
-                    운행_상태 = '비운행중'
-                WHERE 운행_ID = %s
+                UPDATE trip_log
+                SET end_time = NOW(),               -- 종료 시각 기록
+                    status   = '비운행중'           -- 비운행중 상태로 변경
+                WHERE trip_id = %s                  -- 해당 운행 필터
             """, (운행_ID,))
-            # 차량 LED 상태도 녹색으로
+            # 4) vehicle LED 상태 녹색으로 변경
             cursor.execute("""
-                UPDATE 차량
-                SET LED_상태 = '녹색'
-                WHERE 차량_ID = %s
+                UPDATE vehicle
+                SET led_status = '녹색'             -- LED를 녹색으로
+                WHERE vehicle_id = %s               -- 해당 차량 필터
             """, (차량_ID,))
             conn.commit()
             print(f"✅ A차 운행 종료 처리 완료: 운행_ID={운행_ID}")
@@ -387,34 +373,43 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
         conn.rollback()
         print(f"❌ A차 운행 종료 처리 실패: {e}")
 
+
 # B차 목적지 찾기
-# 포화된(포화_여부=1) 구역 중 가장 빠른 포화시각의 구역ID를 반환
 def B_destination():
     conn = get_connection()
     try:
         with conn.cursor() as cur:
+            # 포화된 구역 중 가장 빠른 포화 시각의 region_id 조회
             cur.execute("""
-                SELECT 구역_ID
-                FROM 구역
-                WHERE 포화_여부 = 1 
-                    AND 포화_시각 IS NOT NULL
-                ORDER BY 포화_시각 ASC
-                LIMIT 1
+                SELECT region_id                    -- 구역 ID
+                FROM region                        -- 구역 테이블
+                WHERE is_full    = 1               -- 포화된 상태 필터
+                  AND saturated_at IS NOT NULL     -- 시각이 기록된 것만
+                ORDER BY saturated_at ASC          -- 빠른 순 정렬
+                LIMIT 1                            -- 한 건만
             """)
             row = cur.fetchone()
             return row[0] if row else None
     finally:
         conn.close()
-        
-# B차 구역함에 도착시 서울의 구역함 보관 수량 0, B차 적재 수량 증가
-# 수정필요!!!! 
+
+
+# B차 구역함에 도착할 때
+# 수정필요!!!!
 def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-1001'):
+    """
+    - region의 현재 보관 수량 조회
+    - vehicle current_load 업데이트
+    - region current_capacity 및 포화 상태 초기화
+    - trip_log에서 운행중인 trip_id 조회
+    - package 상태 'B차운송중' 및 second_transport_time 기록
+    """
     try:
-        # 1. 구역의 현재 수량 가져오기
+        # 1) region의 current_capacity 조회
         cursor.execute("""
-            SELECT 현재_보관_수량
-            FROM 구역
-            WHERE 구역_ID = %s
+            SELECT current_capacity                 -- 현재 보관 수량
+            FROM region                             -- region 테이블
+            WHERE region_id = %s                    -- 해당 구역 필터
         """, (구역_ID,))
         result = cursor.fetchone()
         if result is None:
@@ -422,30 +417,30 @@ def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-1001'):
             return
         저장_수량 = result[0]
 
-        # 2. 차량 적재 수량 반영
+        # 2) vehicle current_load 업데이트
         cursor.execute("""
-            UPDATE 차량
-            SET 현재_적재_수량 = %s
-            WHERE 차량_ID = %s
+            UPDATE vehicle
+            SET current_load = %s                  -- 차량 적재 수량 반영
+            WHERE vehicle_id = %s                  -- 해당 차량 필터
         """, (저장_수량, 차량_ID))
 
-        # 3. 구역 보관 수량 0으로 초기화, 포화 여부 0으로 초기화
+        # 3) region current_capacity 및 포화 상태 초기화
         cursor.execute("""
-            UPDATE 구역
-            SET 현재_보관_수량 = 0,
-                포화_여부 = 0,
-                포화_시각 = NULL
-            WHERE 구역_ID = %s
+            UPDATE region
+            SET current_capacity = 0,              -- 보관 수량 초기화
+                is_full          = FALSE,          -- 포화 해제
+                saturated_at     = NULL            -- 포화 시각 제거
+            WHERE region_id = %s                   -- 해당 구역 필터
         """, (구역_ID,))
-        
-        # 4. 현재 운행 중인 운행_ID 가져오기
+
+        # 4) trip_log에서 운행중인 trip_id 조회
         cursor.execute("""
-            SELECT 운행_ID
-            FROM 운행_기록
-            WHERE 차량_ID = %s 
-                AND 운행_상태 = '운행중'
-            ORDER BY 운행_ID DESC
-            LIMIT 1
+            SELECT trip_id                          -- 운행 ID 조회
+            FROM trip_log                          -- trip_log 테이블
+            WHERE vehicle_id = %s                  -- 차량 필터
+              AND status     = '운행중'             -- 운행중 상태 필터
+            ORDER BY trip_id DESC                   -- 최신 순 정렬
+            LIMIT 1                                 -- 한 건만
         """, (차량_ID,))
         row = cursor.fetchone()
         if not row:
@@ -453,32 +448,35 @@ def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-1001'):
             return
         운행_ID = row[0]
 
-        # 5. 택배 상태 업데이트 + B차운송_시각 기록
+        # 5) package 상태 'B차운송중' 및 second_transport_time 기록
         cursor.execute("""
-            UPDATE 택배
-            JOIN 운행_택배 USING (택배_ID)
-            SET 택배.현재_상태 = 'B차운송중',
-                운행_택배.B차운송_시각 = NOW()
-            WHERE 운행_택배.운행_ID = %s
-                AND 운행_택배.구역_ID = %s
-                AND 택배.현재_상태 = '투입됨'
-                AND 운행_택배.B차운송_시각 IS NULL
+            UPDATE package
+            JOIN delivery_log USING (package_id)      -- delivery_log 조인
+            SET package_status          = 'B차운송중', -- 상태 변경
+                delivery_log.second_transport_time = NOW() -- B차 운송 시각 기록
+            WHERE delivery_log.trip_id    = %s         -- 운행 필터
+              AND delivery_log.region_id  = %s         -- 구역 필터
+              AND package_status         = '투입됨'     -- 투입된 택배만
+              AND delivery_log.second_transport_time IS NULL -- 중복 방지
         """, (운행_ID, 구역_ID))
 
         conn.commit()
         print(f"✅ B차 도착 처리 완료: 상태→'B차운송중', 구역 {구역_ID} → 차량 {차량_ID}")
-        
     except Exception as e:
         print(f"❌ B차 도착 처리 중 오류: {e}")
 
-# B차 완전 종료 (B차 대기 지점으로 도착했을 때)
+
+# B차 운행 완전 종료 (대기 지점 도착 시)
 def end_B(cursor, conn, 차량_ID='B-1001'):
     try:
-        # 1. 현재 B차의 운행 중인 운행_ID 가져오기
+        # 1) trip_log에서 운행중인 trip_id 조회
         cursor.execute("""
-            SELECT 운행_ID FROM 운행_기록
-            WHERE 차량_ID = %s AND 운행_상태 = '운행중'
-            ORDER BY 운행_ID DESC LIMIT 1
+            SELECT trip_id                          -- 운행 ID
+            FROM trip_log                          -- trip_log 테이블
+            WHERE vehicle_id = %s                  -- 차량 필터
+              AND status     = '운행중'             -- 운행중 상태 필터
+            ORDER BY trip_id DESC                   -- 최신 순 정렬
+            LIMIT 1                                 -- 한 건만
         """, (차량_ID,))
         row = cursor.fetchone()
         if not row:
@@ -486,26 +484,27 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
             return
         운행_ID = row[0]
 
-        # 2. 미수거 택배가 있는지 확인
+        # 2) 미수거 택배 건수 확인
         cursor.execute("""
-            SELECT COUNT(*) FROM 운행_택배
-            WHERE 운행_ID = %s AND B차운송_시각 IS NULL
+            SELECT COUNT(*)                         -- 미수거 택배 수
+            FROM delivery_log                      -- delivery_log 테이블
+            WHERE trip_id           = %s           -- 운행 필터
+              AND second_transport_time IS NULL    -- 아직 회수되지 않은 택배
         """, (운행_ID,))
         남은_건수 = cursor.fetchone()[0]
 
         if 남은_건수 == 0:
-            # 운행 종료 처리
+            # 3) trip_log 종료 처리: end_time 기록, status 비운행중
             cursor.execute("""
-                UPDATE 운행_기록
-                SET 종료_시각 = NOW(),
-                    운행_상태 = '비운행중'
-                WHERE 운행_ID = %s
+                UPDATE trip_log
+                SET end_time = NOW(),               -- 종료 시각 기록
+                    status   = '비운행중'            -- 상태 변경
+                WHERE trip_id = %s                  -- 해당 운행 필터
             """, (운행_ID,))
             conn.commit()
             print(f"✅ B차 운행 종료 처리 완료: 운행_ID={운행_ID}")
         else:
             print(f"⏳ B차 운행 중: 남은 미수거 택배 {남은_건수}건")
-
     except Exception as e:
         conn.rollback()
         print(f"❌ B차 운행 종료 처리 실패: {e}")
