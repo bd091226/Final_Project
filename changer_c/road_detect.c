@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <MQTTClient.h>
 
-#define ADDRESS "tcp://localhost:1883"
+#define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Storage"
 #define QOS 0
 #define TIMEOUT 10000L
@@ -165,14 +165,50 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     printf("📥 수신 토픽: %s\n", topicName);
     printf("📥 수신 메시지: %.*s\n", message->payloadlen, payload);
 
+    
     if (strcmp(topicName, TOPIC_A) == 0) {
         parse_vehicle_message(payload, &vehicleA);
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd),
+                "python3 - << 'EOF'\n"
+                "from db_access import get_connection,update_vehicle_coords\n"
+                "conn = get_connection()\n"
+                "cur = conn.cursor()\n"
+                "update_vehicle_coords(cur, conn, %d, %d,\"%s\")\n"
+                "conn.close()\n"
+                "EOF",
+                vehicleA.x,
+                vehicleA.y,
+                "A-1000" // 기존 운행_ID
+        );
+        system(cmd);
+
         print_positions();
         has_A = 1;
         evaluate_conflict_and_command();
     }
     else if (strcmp(topicName, TOPIC_B) == 0) {
         parse_vehicle_message(payload, &vehicleB);
+        char x_str[12];
+        char y_str[12];
+
+        snprintf(x_str, sizeof(x_str), "%d", vehicleB.x);
+        snprintf(y_str, sizeof(y_str), "%d", vehicleB.y);
+        char cmd[512];
+        snprintf(cmd, sizeof(cmd),
+                "python3 - << 'EOF'\n"
+                "from db_access import get_connection,update_vehicle_coords\n"
+                "conn = get_connection()\n"
+                "cur = conn.cursor()\n"
+                "update_vehicle_coords(cur, conn, %s, %s,\"%s\")\n"
+                "conn.close()\n"
+                "EOF",
+                x_str,
+                y_str,
+                "B-1001" // 기존 운행_ID
+        );
+        system(cmd);
+
         print_positions();
         has_B = 1;
         evaluate_conflict_and_command();
