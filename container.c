@@ -1,3 +1,10 @@
+/*
+컴파일 :
+gcc container.c -o container -lpaho-mqtt3c
+실행   :
+./container
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
