@@ -7,8 +7,10 @@
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장
-#define TOPIC_B_destination "storage/B_destinationdest"
-#define TOPIC_B_ARRIVED "storage/b_arrived"
+#define TOPIC_B_DEST "storage/b_dest" // B차 목적지 토픽
+#define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived" 
+#define TOPIC_B_HOME        "storage/b_home"
+#define TOPIC_B_HOME_ARRIVED   "storage/b_home_arrived"
 #define QOS 1
 #define TIMEOUT 10000L
 
@@ -44,40 +46,6 @@ char *B_destination()
     return result;
 }
 
-// 메시지 수신 함수
-int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_message *message)
-{
-    char msg[message->payloadlen + 1];
-    memcpy(msg, message->payload, message->payloadlen);
-    msg[message->payloadlen] = '\0';
-
-    printf("[수신] 토픽: %s, 메시지: %s\n", topicName, msg);
-
-    move_servo(chip, 0); // 수정필요!! B차 구역함 도착시 임의로 02(0) 구역함 서보모터 동작
-                         // 나중엔 해당 구역번호를 받아서 해당 센서만 동작해야함!!
-    char cmd2[512];
-    snprintf(cmd2, sizeof(cmd2),
-             "python3 - << 'EOF'\n"
-             "from db_access import get_connection, zone_arrival_B\n"
-             "conn = get_connection()\n"
-             "cur = conn.cursor()\n"
-             "zone_arrival_B(conn, cur, '%s', 2)\n"
-             "conn.close()\n"
-             "EOF",
-             msg);
-    if (system(cmd2) != 0)
-    {
-        fprintf(stderr, "❌ zone_arrival_B() 실행 실패 (zone=%s)\n", msg);
-    }
-    else
-    {
-        printf("✅ zone_arrival_B() 실행 완료\n");
-    }
-    MQTTClient_freeMessage(&message);
-    MQTTClient_free(topicName);
-    return 1;
-}
-
 // 메시지 송신 함수
 void publish_zone(const char *구역_ID)
 {
@@ -95,18 +63,62 @@ void publish_zone(const char *구역_ID)
 
     MQTTClient_deliveryToken token;
     // MQTTClient_publishMessage : MQTT 메시지를 발행하는 함수
-    int rc = MQTTClient_publishMessage(client, TOPIC_B_destination, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_B_DEST, &pubmsg, &token);
 
     if (rc == MQTTCLIENT_SUCCESS)
     {
         // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        printf("[발행] %s → %s\n", TOPIC_B_destination, 구역_ID);
+        printf("[송신] %s → %s\n", TOPIC_B_DEST, 구역_ID);
     }
     else
     {
         fprintf(stderr, "MQTT publish failed, rc=%d\n", rc);
     }
 }
+// 메시지 수신 함수
+int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_message *message)
+{
+    char msg[message->payloadlen + 1];
+    memcpy(msg, message->payload, message->payloadlen);
+    msg[message->payloadlen] = '\0';
+
+    printf("[수신] 토픽: %s, 메시지: %s\n", topicName, msg);
+
+    //move_servo(chip, 0); // 수정필요!! B차 구역함 도착시 임의로 02(0) 구역함 서보모터 동작
+                         // 나중엔 해당 구역번호를 받아서 해당 센서만 동작해야함!!
+
+    if(strcmp(topicName,TOPIC_B_DEST_ARRIVED)==0)
+    {
+        char cmd2[512];
+        snprintf(cmd2, sizeof(cmd2),
+                "python3 - << 'EOF'\n"
+                "from db_access import get_connection, zone_arrival_B\n"
+                "conn = get_connection()\n"
+                "cur = conn.cursor()\n"
+                "zone_arrival_B(conn, cur, '%s', 2)\n"
+                "conn.close()\n"
+                "EOF",
+                msg);
+        if (system(cmd2) != 0)
+        {
+            fprintf(stderr, "❌ zone_arrival_B() 실행 실패 (zone=%s)\n", msg);
+        }
+        else
+        {
+            printf("✅ zone_arrival_B() 실행 완료\n");
+        }
+    }
+    
+    if(strcmp(topicName,TOPIC_B_HOME_ARRIVED)==0)
+    {
+        printf("출발지점 도착\n");
+    }
+    MQTTClient_freeMessage(&message);
+    MQTTClient_free(topicName);
+    return 1;
+}
+
+
 
 // 콜백: 연결 끊겼을 때 호출됩니다
 void connection_lost(void *context, char *cause)
@@ -129,23 +141,44 @@ int main(int argc, char *argv[])
     }
     printf("Connected to MQTT broker at %s\n", ADDRESS);
 
-    MQTTClient_subscribe(client, TOPIC_B_ARRIVED, QOS);
-    printf("Subscribed to topic: %s\n", TOPIC_B_ARRIVED);
-    // 한 번만 구역 ID 조회 & 발행
-    char *zone = B_destination();
-    if (zone && *zone)
-    {
-        publish_zone(zone);
+
+    MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_HOME_ARRIVED, QOS);
+    int rc1 = MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
+    if (rc1 != MQTTCLIENT_SUCCESS) {
+        fprintf(stderr, "ERROR: TOPIC_B_DEST_ARRIVED 구독 실패, rc=%d\n", rc1);
+        return -1;
     }
-    else
-    {
-        printf("조회된 구역이 없습니다.\n");
+    int rc2 = MQTTClient_subscribe(client, TOPIC_B_HOME_ARRIVED, QOS);
+    if (rc2 != MQTTCLIENT_SUCCESS) {
+        fprintf(stderr, "ERROR: TOPIC_B_HOME_ARRIVED 구독 실패, rc=%d\n", rc2);
+        return -1;
     }
 
+    char prev_zone[64] = {0};
     // 주기적 또는 이벤트 기반 호출 예시
     while (1)
     {
-        sleep(1); // 5초 대기
+        // ─────────────────────────────────────────────
+        // ① 네트워크 I/O 처리 (메시지 수신 콜백을 실행시키기 위해)
+        MQTTClient_yield();
+
+        // ② DB에서 새 목적지 조회
+        char *zone = B_destination();
+        if (zone && *zone)
+        {
+            // “새로운” 구역 ID일 때만 발행
+            if (strcmp(zone, prev_zone) != 0)
+            {
+                publish_zone(zone);
+                // prev_zone을 갱신
+                strncpy(prev_zone, zone, sizeof(prev_zone) - 1);
+                prev_zone[sizeof(prev_zone) - 1] = '\0';
+            }
+        }
+        // (만약 B_destination()이 NULL이거나 빈 문자열이라면 아무 것도 하지 않음)
+
+        sleep(5); // 5초 간격으로 폴링
     }
 
     MQTTClient_disconnect(client, 10000);
