@@ -61,16 +61,13 @@ void parse_vehicle_message(char *msg, VehicleState *vehicle) {
 int detect_conflict_index(const VehicleState *a, const VehicleState *b) {
     if (a->path_len == 0 || b->path_len == 0) return -1; // 같은 좌표를 동시에 가는 경우 
 
-    int len = a->path_len < b->path_len ? a->path_len : b->path_len;
-    for (int i = 0; i < len; i++) {
+    for (int i = 0; i < a->path_len; i++) {
         int ax = a->path[i][0], ay = a->path[i][1];
-        int bx = b->path[i][0], by = b->path[i][1];
-        if (ax == bx && ay == by)
-            return i;
-        if (i > 0 &&
-            a->path[i - 1][0] == bx && a->path[i - 1][1] == by &&
-            b->path[i - 1][0] == ax && b->path[i - 1][1] == ay)
-            return i;
+        for (int j = 0; j < b->path_len; j++) {
+            int bx = b->path[j][0], by = b->path[j][1];
+            if (ax == bx && ay == by)
+                return i; // 단순히 A의 경로 상 겹치는 좌표 발견 시 index 반환
+        }
     }
     return -1;
 }
@@ -145,7 +142,8 @@ void evaluate_conflict_and_command() {
         }
 
         send_message(CMD_B, "move");
-    } else {
+    } 
+    else {
         if (A_hold_state) {
             send_message(CMD_A, "move");
             printf("a차 move 송신");
