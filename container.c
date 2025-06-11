@@ -11,7 +11,7 @@ gcc container.c -o container -lpaho-mqtt3c
 #include <unistd.h>
 #include <MQTTClient.h>
 
-#define ADDRESS "tcp://localhost:1883"
+#define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Storage"
 #define QOS 0
 #define TIMEOUT 10000L

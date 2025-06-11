@@ -23,7 +23,7 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lwiringPi
 #define WEST    3    // 서쪽
 
 // MQTT 설정
-#define ADDRESS   "tcp://localhost:1883"  // 브로커 주소
+#define ADDRESS   "tcp://broker.hivemq.com:1883"  // 브로커 주소
 #define CLIENTID  "Vehicle_B"             // 클라이언트 ID
 #define TOPIC_PUB "vehicle/status_B"      // 상태 발행 토픽
 #define TOPIC_SUB "vehicle/storage/B"     // 제어 명령 구독 토픽
