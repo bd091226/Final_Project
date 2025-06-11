@@ -7,7 +7,7 @@
       "command": "/bin/bash",
       "args": [
         "-c",
-        "gcc count_mattcheck.c sensor.c -o count_mattcheck -lpaho-mqtt3c -lgpiod && gcc Bcar_C.c sensor.c -o Bcar_C -lpaho-mqtt3c -lgpiod && gcc combined_mqtt.c -o combined_mqtt -lpaho-mqtt3c -lgpiod"
+        "gcc count_mattcheck.c sensor.c -o count_mattcheck -lpaho-mqtt3c -lgpiod && gcc count_mattcheck.c -o count_mattcheck -lpaho-mqtt3c && gcc Bcar_C.c sensor.c -o Bcar_C -lpaho-mqtt3c -lgpiod && gcc road_detect.c -o road_detect -lpaho-mqtt3c && gcc combined_mqtt.c -o combined_mqtt -lpaho-mqtt3c -lgpiod"
       ],
       "options": {
         "cwd": "/home/pi/Final_Project/changer_c"
