@@ -277,8 +277,9 @@ void publish_multi_status(Point *path, int idx, int len) {
     if (positions[strlen(positions)-1] == ',')
         positions[strlen(positions)-1] = '\0';
 
-    snprintf(payload, sizeof(payload), "POS: (%d,%d) PATH: [%s]",
-             current_pos.r, current_pos.c, positions);
+    snprintf(payload, sizeof(payload),
+             "ID : %s POS: (%d,%d) PATH: [%s]",
+             ID,current_pos.r, current_pos.c, positions);
     printf("[송신] A -> %s\n", payload);
 
     MQTTClient_message msg = MQTTClient_message_initializer;

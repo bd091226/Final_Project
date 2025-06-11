@@ -35,18 +35,8 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lwiringPi
 #define COLS      9     // 열 개수
 #define MAX_PATH  100   // 최대 경로 길이
 
-// 모터 제어 핀 정의 (WiringPi BCM 모드)
-#define AIN1 22
-#define AIN2 27
-#define PWMA 18
-#define BIN1 25
-#define BIN2 24
-#define PWMB 23
-
-// 모터 동작 타이밍 (초)
-#define SECONDS_PER_GRID_STEP       1.1
-#define SECONDS_PER_90_DEG_ROTATION 0.8
-#define PRE_ROTATE_FORWARD_CM       8.0f
+// ID 정의
+#define ID        "B"
 
 // 점 좌표 구조체
 typedef struct { int r, c; } Point;
@@ -275,9 +265,8 @@ void publish_status(Point *path, int idx, int len) {
         snprintf(pts + strlen(pts), sizeof(pts) - strlen(pts),
                  "(%d,%d)%s", path[i].r, path[i].c, (i<idx+3)?",":"");
     }
-    snprintf(payload, sizeof(payload),
-             "POS: (%d,%d) PATH: [%s]",
-             current_pos.r, current_pos.c, pts);
+    // 포맷: POS: (r,c) PATH: [..]
+    sprintf(payload, "ID : %S POS: (%d,%d) PATH: [%s]", ID, current_pos.r, current_pos.c, pts);
     printf("[송신] B -> %s\n", payload);
 
     MQTTClient_message msg = MQTTClient_message_initializer;
