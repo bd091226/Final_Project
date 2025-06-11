@@ -69,7 +69,7 @@ def button_A(cursor, conn, count, 차량_ID):
         # 1) 가장 오래된 '등록됨' 택배 조회
         cursor.execute(
             """
-            SELECT s.package_id, s.region_id, s.registered_at      -- ID, 구역, 등록 시각
+            SELECT s.package_id, s.region_id, s.registered_at    -- ID, 구역, 등록 시각
             FROM package s                                       -- 택배 테이블
             WHERE s.package_status = 'registered'                -- 상태 필터
               AND NOT EXISTS (                                   -- 이미 실린 건 제외
@@ -218,8 +218,8 @@ def A_destination(운행_ID):
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT region_id                          -- 다음 투입할 구역 ID
-                FROM delivery_log                        -- delivery_log 테이블
+                SELECT region_id                        -- 다음 투입할 구역 ID
+                FROM delivery_log                       -- delivery_log 테이블
                 WHERE trip_id              = %s         -- 해당 운행 필터
                   AND first_transport_time IS NOT NULL  -- A차 운송이 완료된 건
                   AND input_time           IS NULL      -- 아직 투입되지 않은 건
@@ -508,3 +508,23 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
     except Exception as e:
         conn.rollback()
         print(f"❌ B차 운행 종료 처리 실패: {e}")
+        
+
+# A/B차량 현재 좌표 저장 
+def update_vehicle_coords(cursor, conn, x, y, vehicle_id):
+    try:
+        # vehicle 테이블에서 특정 차량의 좌표를 업데이트합니다.
+        cursor.execute("""
+            -- vehicle 테이블에서 특정 차량의 coord_x, coord_y 컬럼을 수정
+            UPDATE vehicle
+               SET coord_x    = %s,  -- 현재 X 좌표
+                   coord_y    = %s   -- 현재 Y 좌표
+             WHERE vehicle_id = %s   -- 업데이트할 차량의 ID
+        """, (x, y, vehicle_id))
+        # 변경 내용을 커밋하여 DB에 반영
+        conn.commit()
+        print(f"✅ 차량 {vehicle_id} 좌표가 ({x}, {y})로 업데이트되었습니다.")
+    except Exception as e:
+        # 오류 발생 시 롤백하여 이전 상태로 복구
+        conn.rollback()
+        print(f"❌ 차량 {vehicle_id} 좌표 업데이트 실패: {e}")
