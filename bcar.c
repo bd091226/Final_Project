@@ -12,7 +12,7 @@
 #define QOS 0
 #define TIMEOUT 10000L
 
-#define ROWS 9
+#define ROWS 7
 #define COLS 9
 #define MAX_PATH 100
 
@@ -21,10 +21,8 @@
 int grid[ROWS][COLS] = {
     {'A', 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 1, 1, 1, 0, 1, 1, 1, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 'S', 1, 0, 1, 'G', 1, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 'K', 1, 0, 1, 'W', 1, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 'B'}};
@@ -46,7 +44,7 @@ int path_idx = 0;
 
 MQTTClient client;
 char goalsB[] = {'W', 'B', 'S', 'B', 'G', 'B', 'K', 'B'};
-Point current_pos = {8, 8};
+Point current_pos = {6, 8};
 
 volatile int move_permission = 0; // 원래는 0으로 바꿔야함 지금은 테스트중이기 때문에 1로
 volatile int is_waiting = 0;

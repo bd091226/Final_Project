@@ -12,7 +12,7 @@
 #define QOS 0
 #define TIMEOUT 10000L
 
-#define ROWS 9
+#define ROWS 7
 #define COLS 9
 #define MAX_PATH 100
 
@@ -21,10 +21,8 @@
 int grid[ROWS][COLS] = {
     {'A', 0, 0, 0, 0, 0, 0, 0, 0},
     {0, 1, 1, 1, 0, 1, 1, 1, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 'S', 1, 0, 1, 'G', 1, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 0},
-    {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 1, 1, 0, 1, 1, 1, 0},
     {0, 1, 'K', 1, 0, 1, 'W', 1, 0},
     {0, 0, 0, 0, 0, 0, 0, 0, 'B'}};
@@ -225,21 +223,19 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     memcpy(msg, message->payload, message->payloadlen);
     msg[message->payloadlen] = '\0';
 
+    printf("MQTT msg received: %s\n", msg);
+
     if (strcmp(msg, "move") == 0)
     {
         is_waiting = 0;
         move_permission = 1;
         printf(">> move 명령 수신됨\n");
     }
-    else if (strcmp(msg, "wait") == 0)
+    else if (strcmp(msg, "hold") == 0)
     {
         is_waiting = 1;
-        printf(">> wait 명령 수신됨\n");
-    }
-    else if (strcmp(msg, "replan") == 0)
-    {
-        need_replan = 1;
-        printf(">> replan 명령 수신됨\n");
+        move_permission = 0; 
+        printf(">> hold 명령 수신됨\n");
     }
 
     MQTTClient_freeMessage(&message);
@@ -279,7 +275,7 @@ int main()
             while (is_waiting || !move_permission)
             {
                 MQTTClient_yield();
-                usleep(100 * 1000);
+                usleep(200 * 1000);
             }
 
             move_permission = 0;
