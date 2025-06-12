@@ -4,8 +4,20 @@
 #include <sys/wait.h>
 
 int main(int argc, char *argv[]) {
-    pid_t pidA, pidB;
+    pid_t pidA, pidB,pidStorage;
     int status;
+
+    // 보관함 (Storage) 프로세스 실행
+    pidStorage = fork();
+    if (pidStorage < 0) {
+        perror("fork for Storage failed");
+        return 1;
+    }
+    if (pidStorage == 0) {
+        execl("./road_detect", "road_detect", (char*)NULL);
+        perror("execl road_detect failed");
+        _exit(1);
+    }
 
     // A차 프로세스 실행
     pidA = fork();
@@ -34,6 +46,8 @@ int main(int argc, char *argv[]) {
     }
 
     // 부모 프로세스는 두 자식이 모두 끝나길 기다립니다.
+    waitpid(pidStorage, &status, 0);
+    printf("보관함 프로세스 종료 (status=%d)\n", status);
     waitpid(pidA, &status, 0);
     printf("A차 프로세스 종료 (status=%d)\n", status);
     waitpid(pidB, &status, 0);
