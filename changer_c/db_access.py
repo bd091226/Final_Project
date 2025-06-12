@@ -1,5 +1,6 @@
 # ssh -i ~/Final_Project/kosta-final-aws-key-250519.pem ubuntu@ec2-13-209-8-231.ap-northeast-2.compute.amazonaws.com
-
+# chmod 400 ~/Final_Project/kosta-final-aws-key-250519.pem
+# mysql -u root -p Kosta_Final_250519
 #!/usr/bin/env python3
 # db_access.py
 
@@ -71,7 +72,7 @@ def button_A(cursor, conn, count, 차량_ID):
             """
             SELECT s.package_id, s.region_id, s.registered_at    -- ID, 구역, 등록 시각
             FROM package s                                       -- 택배 테이블
-            WHERE s.package_status = 'registered'                -- 상태 필터
+            WHERE s.package_status = '등록됨'                -- 상태 필터
               AND NOT EXISTS (                                   -- 이미 실린 건 제외
                   SELECT 1 FROM delivery_log us
                   WHERE us.package_id = s.package_id
@@ -181,10 +182,10 @@ def departed_A(conn, cursor, 차량_ID):
             UPDATE package                         -- 택배 테이블
             JOIN delivery_log USING (package_id)   -- delivery_log 테이블 조인
             JOIN trip_log      USING (trip_id)     -- trip_log 테이블 조인
-            SET package_status           = 'A_transport',       -- 상태를 A차운송중으로
+            SET package_status           = 'A차운송중',       -- 상태를 A차운송중으로
                 delivery_log.first_transport_time = NOW()        -- A차 첫 운송 시각 기록
             WHERE trip_log.vehicle_id    = %s                  -- 해당 차량 필터
-              AND package_status         = 'registered'        -- 등록된 택배만
+              AND package_status         = '등록됨'        -- 등록된 택배만
               AND trip_log.start_time    IS NULL               -- 아직 출발 전인 운행
               AND trip_log.status        = '비운행중'           -- 대기 상태인 운행
         """, (차량_ID,))
@@ -288,7 +289,7 @@ def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
         cursor.execute("""
             UPDATE package                         -- package 테이블
             JOIN delivery_log USING (package_id)   -- delivery_log 조인
-            SET package_status = 'input',           -- 상태 변경
+            SET package_status = '투입됨',           -- 상태 변경
                 delivery_log.input_time = NOW()     -- 투입 시각 기록
             WHERE delivery_log.trip_id  = %s        -- 해당 운행 필터
               AND delivery_log.region_id = %s       -- 해당 구역 필터
@@ -358,10 +359,10 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
                     status   = '비운행중'           -- 비운행중 상태로 변경
                 WHERE trip_id = %s                  -- 해당 운행 필터
             """, (운행_ID,))
-            # 4) vehicle LED 상태 녹색으로 변경
+            # 4) vehicle LED 상태 초록으로 변경
             cursor.execute("""
                 UPDATE vehicle
-                SET led_status = '녹색'             -- LED를 녹색으로
+                SET led_status = '초록'             -- LED를 초록으로
                 WHERE vehicle_id = %s               -- 해당 차량 필터
             """, (차량_ID,))
             conn.commit()
