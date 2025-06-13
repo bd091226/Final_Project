@@ -36,12 +36,12 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 
 // 모터 제어 핀 설정
 #define CHIP "gpiochip4"
-#define IN1_PIN 22
-#define IN2_PIN 27
-#define ENA_PIN 18
-#define IN3_PIN 25
-#define IN4_PIN 24
-#define ENB_PIN 23
+#define IN1_PIN 17
+#define IN2_PIN 18
+#define ENA_PIN 12
+#define IN3_PIN 22
+#define IN4_PIN 23
+#define ENB_PIN 13
 
 // 모터 동작 타이밍 (초)
 #define SECONDS_PER_GRID_STEP       1.1
@@ -66,14 +66,14 @@ static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
 
 // 프로토타입
 static void handle_sigint(int sig);
-static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int ena_val, int enb_val);
-static void motor_go(void);
+// 프로토타입 선언부 수정
+static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
+static void motor_go(int speed, double duration);
 static void motor_stop(void);
-static void motor_right(void);
-static void motor_left(void);
-static void delay_sec(double sec);
-static void rotate_one(int *dir, int turn_dir);
-static void forward_one(Point *pos, int dir);
+static void motor_right(int speed, double duration);
+static void motor_left(int speed, double duration);
+static void rotate_one(int *dir, int turn_dir, int speed);
+static void forward_one(Point *pos, int dir, int speed);
 
 Point  find_point_by_char(char ch);
 int    heuristic(Point a, Point b);
@@ -109,75 +109,84 @@ static int grid[ROWS][COLS] = {
     {0,0,0,0,0,0,0,0,'B'}
 };
 
-// SIGINT 핸들러
 static void handle_sigint(int sig) {
-    motor_stop();
+    gpiod_line_set_value(ena, 0);
+    gpiod_line_set_value(enb, 0);
     gpiod_chip_close(chip);
     exit(0);
 }
 
-// 모터 제어
 static void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
 }
 
-static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int ena_val, int enb_val) {
+static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec) {
+    int cycle_us = 2000;
+    int cycles = (duration_sec * 1e6) / cycle_us;
+
+    int on_time_a = (cycle_us * pwm_a) / 100;
+    int off_time_a = cycle_us - on_time_a;
+    int on_time_b = (cycle_us * pwm_b) / 100;
+    int off_time_b = cycle_us - on_time_b;
+
     gpiod_line_set_value(in1, in1_val);
     gpiod_line_set_value(in2, in2_val);
     gpiod_line_set_value(in3, in3_val);
     gpiod_line_set_value(in4, in4_val);
-    gpiod_line_set_value(ena, ena_val);
-    gpiod_line_set_value(enb, enb_val);
+
+    for (int i = 0; i < cycles; i++) {
+        if (pwm_a > 0) gpiod_line_set_value(ena, 1);
+        if (pwm_b > 0) gpiod_line_set_value(enb, 1);
+
+        usleep((on_time_a < on_time_b) ? on_time_a : on_time_b);
+
+        if (pwm_a < 100) gpiod_line_set_value(ena, 0);
+        if (pwm_b < 100) gpiod_line_set_value(enb, 0);
+
+        usleep((off_time_a > off_time_b) ? off_time_a : off_time_b);
+    }
+
+    gpiod_line_set_value(ena, 0);
+    gpiod_line_set_value(enb, 0);
 }
 
-static void motor_go(void) {
-    printf("[motor] GO\n");   fflush(stdout);
-    motor_control(1, 0, 1, 0, 1, 1);
-    delay_sec(0.1);
+static void motor_go(int speed, double duration) {
+    motor_control(1, 0, 1, 0, speed, speed, duration);
 }
 
 static void motor_stop(void) {
-    printf("[motor] STOP\n"); fflush(stdout);
-    motor_control(0, 0, 0, 0, 0, 0);
-    delay_sec(0.1);
+    motor_control(0, 0, 0, 0, 0, 0, 0.1);
 }
 
-static void motor_right(void) {
-    printf("[motor] RIGHT\n"); fflush(stdout);
-    motor_control(1, 0, 0, 1, 1, 1);
-    delay_sec(0.1);
+static void motor_left(int speed, double duration) {
+    motor_control(0, 1, 1, 0, speed, speed, duration);
 }
 
-static void motor_left(void) {
-    printf("[motor] LEFT\n"); fflush(stdout);
-    motor_control(0, 1, 1, 0, 1, 1);
-    delay_sec(0.1);
+static void motor_right(int speed, double duration) {
+    motor_control(1, 0, 0, 1, speed, speed, duration);
 }
 
-static void rotate_one(int *dir, int turn_dir) {
-    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * SECONDS_PER_GRID_STEP;
-    motor_go();                 // 회전 전 전진 보정
-    delay_sec(t0);
+static void rotate_one(int *dir, int turn_dir, int speed) {
+    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * 1.1;
+    motor_go(speed, t0);                 // 회전 전 전진 보정
     motor_stop();
     delay_sec(0.1);
     if (turn_dir > 0)
-        motor_right();          // 우회전
+        motor_right(speed, SECONDS_PER_90_DEG_ROTATION); // 우회전
     else
-        motor_left();           // 좌회전
-    delay_sec(SECONDS_PER_90_DEG_ROTATION);
+        motor_left(speed, SECONDS_PER_90_DEG_ROTATION);  // 좌회전
     motor_stop();
     *dir = (*dir + turn_dir + 4) % 4;  // 방향 갱신
 }
 
-static void forward_one(Point *pos, int dir) {
-    motor_go();                 // 전진
-    delay_sec(SECONDS_PER_GRID_STEP);
+static void forward_one(Point *pos, int dir, int speed) {
+    motor_go(speed, SECONDS_PER_GRID_STEP);                 // 전진
     motor_stop();
     switch (dir) {
-      case NORTH: pos->r--; break;
-      case SOUTH: pos->r++; break;
-      case EAST:  pos->c++; break;
-      case WEST:  pos->c--; break;
+        case 0: pos->r--; break;
+        case 1: pos->c++; break;
+        case 2: pos->r++; break;
+        case 3: pos->c--; break;
     }
 }
 
@@ -364,7 +373,6 @@ int main(void) {
     signal(SIGINT, handle_sigint);
 
     chip = gpiod_chip_open_by_name(CHIP);
-
     in1 = gpiod_chip_get_line(chip, IN1_PIN);
     in2 = gpiod_chip_get_line(chip, IN2_PIN);
     ena = gpiod_chip_get_line(chip, ENA_PIN);
@@ -380,9 +388,9 @@ int main(void) {
     gpiod_line_request_output(enb, "ENB", 0);
     
     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
-    MQTTClient_create(&client, ADDRESS, CLIENTID,
-                      MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
     MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
+
     if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "MQTT 연결 실패\n");
         return 1;
@@ -415,16 +423,13 @@ int main(void) {
 
             if (diff < 0) {
                 puts("[B] TURN_LEFT");
-                rotate_one(&dirB, -1);
+                rotate_one(&dirB, -1, 60);  // 속도 70으로 좌회전
             } else if (diff > 0) {
                 puts("[B] TURN_RIGHT");
-                rotate_one(&dirB, +1);
+                rotate_one(&dirB, +1, 60);  // 속도 70으로 우회전
             } else {
                 puts("[B] FORWARD");
-                motor_go();
-                delay_sec(SECONDS_PER_GRID_STEP);
-                motor_stop();
-                current_pos = nxt;
+                forward_one(&current_pos, dirB, 60);  // 속도 70으로 전진
                 path_idx++;
             }
 
@@ -432,6 +437,7 @@ int main(void) {
             print_grid_with_dir(current_pos, dirB);
         }
     }
+
     MQTTClient_disconnect(client, TIMEOUT);
     MQTTClient_destroy(&client);
     return 0;
