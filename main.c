@@ -1,45 +1,3 @@
-// void QR_read()
-// {
-//     FILE *fp;
-//     char result[128];
-//     fp = popen("python3 /home/pi/FinalProject/A_camera_final.py", "r");  // 파일 경로에 맞게 수정
-//     if (fp == NULL) {
-//         printf("Failed to run Python script\n");
-//         return;
-//     }
-//     // 전체 출력 한 번에 받기
-//     if (fgets(result, sizeof(result), fp) != NULL) {
-//         result[strcspn(result, "\r\n")] = '\0';  // 첫 줄 개행 제거
-//         char *newline = strchr(result, '\n');   // 줄바꿈 문자 찾기 (이건 fgets에서는 잘 안 씀)
-//         // 줄바꿈으로 분리
-//         char *zone = strtok(result, "\n");
-//         char *product = strtok(NULL, "\n");
-//         if (zone && product) {
-//             // zone_id 발행
-//             MQTTClient_message pub1 = MQTTClient_message_initializer;
-//             pub1.payload = zone;
-//             pub1.payloadlen = strlen(zone);
-//             pub1.qos = QOS;
-//             pub1.retained = 0;
-//             MQTTClient_deliveryToken token1;
-//             MQTTClient_publishMessage(client, TOPIC_QR, &pub1, &token1);
-//             printf("[PUBLISH] zone_id: %s → %s\n", zone, TOPIC_QR);
-//             // product_id 발행
-//             MQTTClient_message pub2 = MQTTClient_message_initializer;
-//             pub2.payload = product;
-//             pub2.payloadlen = strlen(product);
-//             pub2.qos = QOS;
-//             pub2.retained = 0;
-//             MQTTClient_deliveryToken token2;
-//             MQTTClient_publishMessage(client, "storage/product", &pub2, &token2);
-//             printf("[PUBLISH] product_id: %s → storage/product\n", product);
-//         } else {
-//             printf("Invalid QR format. Expected two lines.\n");
-//         }
-//     }
-//     pclose(fp);
-// }
-
 // main.c
 
 #include <stdio.h>
@@ -172,7 +130,7 @@ void startpoint()
 // MQTT로 "목적지 도착" 메시지 발행
 void dest_arrived(const char *dest) {
     char msg_buffer[128];
-    snprintf(msg_buffer,sizeof(msg_buffer),"%s 도착",dest);
+    snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
 
     // 컨베이어벨트 작동
 
@@ -220,10 +178,10 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         startpoint();
         start_sent=1;
     }
-    if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
-    {
-        dest_arrived(msg);
-    }
+    // if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
+    // {
+    //     dest_arrived(msg);
+    // }
     if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
     {
         sleep(3);

@@ -23,10 +23,14 @@ gcc acar.c -o acar -lpaho-mqtt3c -lwiringPi
 #define WEST    3
 
 // MQTT 설정
-#define ADDRESS   "tcp://localhost:1883"
+#define ADDRESS   "tcp://broker.hivemq.com:1883"
 #define CLIENTID  "Vehicle_A"
 #define TOPIC_PUB "vehicle/status_A"
 #define TOPIC_SUB "vehicle/storage/A"
+
+#define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
+#define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
+
 #define QOS       0
 #define TIMEOUT   10000L
 
@@ -77,6 +81,11 @@ static int dirA = SOUTH;                // A 차량 초기 방향
 static volatile int move_permission = 0;
 static volatile int is_waiting = 0;
 static char goalsA[] = {'K','G','S','W','A'};
+
+// 전역 변수 추가
+static volatile int has_new_goal = 0;
+static char current_goal_char = '\0';
+static char last_goal_char = '\0';
 
 // 함수 프로토타입
 static void handle_sigint(int sig);
@@ -322,19 +331,60 @@ Point find_point_by_char(char ch) {
     return (Point){-1,-1};
 }
 
+int publish_message(const char* topic, const char* payload) {
+    MQTTClient_message pubmsg = MQTTClient_message_initializer;
+    pubmsg.payload = (void*)payload;
+    pubmsg.payloadlen = strlen(payload);
+    pubmsg.qos = QOS;
+    pubmsg.retained = 0;
+
+    MQTTClient_deliveryToken token;
+    int rc = MQTTClient_publishMessage(client, topic, &pubmsg, &token);
+    if (rc != MQTTCLIENT_SUCCESS) {
+        printf("[오류] 메시지 발행 실패: %d\n", rc);
+        return rc;
+    }
+
+    rc = MQTTClient_waitForCompletion(client, token, TIMEOUT);
+    return rc;
+}
+
 int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
     char buf[message->payloadlen+1];
     memcpy(buf, message->payload, message->payloadlen);
     buf[message->payloadlen]='\0';
-    printf("[수신] %s\n", buf);
-    if (!strcmp(buf,"move")) { 
-        is_waiting=0; 
-        move_permission=1; 
-        puts(">> move");
-     } else if (!strcmp(buf,"hold")) { 
-        is_waiting=1; 
-        move_permission=0; 
-        puts(">> hold"); 
+    
+    if(strcmp(topic,TOPIC_SUB)==0)
+    {
+        printf("[수신] %s\n", buf);
+        if (!strcmp(buf,"move")) { 
+            is_waiting=0; 
+            move_permission=1; 
+            puts(">> move");
+        } else if (!strcmp(buf,"hold")) { 
+            is_waiting=1; 
+            move_permission=0; 
+            puts(">> hold"); 
+        }
+    }
+    if(strcmp(topic,TOPIC_A_DEST)==0)
+    {
+        char dest_char = buf[0];  // 문자열의 첫 문자만 추출
+        if (dest_char != '\0') 
+        {
+            if (dest_char == last_goal_char) {
+                printf(">> 동일한 목적지 구역입니다: %c\n", dest_char);
+            } else {
+                current_goal_char = dest_char;
+                last_goal_char = dest_char;
+                has_new_goal = 1;
+                printf(">> 새 목적지 수신: %c\n", current_goal_char);
+            }
+        } 
+        else 
+        {
+            printf(">> 알 수 없는 목적지 코드: %s\n", buf);
+        }
     }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topic);
@@ -356,18 +406,27 @@ int main(void) {
         return 1;
     }
     MQTTClient_subscribe(client, TOPIC_SUB, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
 
-    int n = sizeof(goalsA)/sizeof(goalsA[0]);
-    for (int i=0; i<n; i++) {
-        Point g = find_point_by_char(goalsA[i]);
+    while (1) {
+        MQTTClient_yield();  // 항상 메시지 처리 유지
+        usleep(100000);      // CPU 사용률 감소용 대기
+
+        if (!has_new_goal) continue;
+
+        Point g = find_point_by_char(current_goal_char);
         if (!astar(current_pos, g)) {
-            printf("경로 탐색 실패: %c\n", goalsA[i]);
+            printf("경로 탐색 실패: %c\n", current_goal_char);
+            has_new_goal = 0;
             continue;
         }
+
         path_idx = 0;
         publish_multi_status(path, path_idx, path_len);
+        has_new_goal = 0; // 목표 수신 완료 후 초기화
 
-        while (path_idx < path_len) {
+        while (path_idx < path_len) 
+        {
             while (is_waiting || !move_permission) {
                 MQTTClient_yield();
                 usleep(200000);
@@ -381,17 +440,14 @@ int main(void) {
             int diff = (td - dirA + 4) % 4;
             if (diff == 3) diff = -1;
 
-            if (diff<0) {
+            if (diff < 0) {
                 puts("[A] TURN_LEFT");
-                rotate_one(&dirA, -1);
-            } else if (diff>0) {
+                dirA = (dirA + diff + 4) % 4;
+            } else if (diff > 0) {
                 puts("[A] TURN_RIGHT");
-                rotate_one(&dirA, +1);
+                dirA = (dirA + diff) % 4;
             } else {
                 puts("[A] FORWARD");
-                motor_go(); 
-                delay_sec(SECONDS_PER_GRID_STEP); 
-                motor_stop();
                 current_pos = nxt;
                 path_idx++;
             }
@@ -399,6 +455,18 @@ int main(void) {
             publish_multi_status(path, path_idx, path_len);
             print_grid_with_dir(current_pos, dirA);
         }
+
+        //printf(">> 목적지 %c 도착 완료. 다음 목적지 대기 중...\n", current_goal_char);
+        // 도착 메시지 송신
+        char msg_buffer[100];
+        sprintf(msg_buffer, "%c", current_goal_char);  // 도착한 목적지 문자를 메시지에 저장
+        if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+            printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+        } else {
+            printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+        }
+
+        current_goal_char = '\0';
     }
 
     MQTTClient_disconnect(client, TIMEOUT);
