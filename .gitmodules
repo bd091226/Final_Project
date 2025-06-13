@@ -1,0 +1,3 @@
+[submodule "go-api-server"]
+	path = go-api-server
+	url = https://github.com/baboyiban/go-api-server
