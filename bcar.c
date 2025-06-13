@@ -1,26 +1,19 @@
 /*
 컴파일 :
-gcc bcar.c -o bcar -lpaho-mqtt3c -lwiringPi
+gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 실행   :
 ./bcar
 */
 
-#include <stdio.h>                // 표준 입출력 헤더
-#include <stdlib.h>               // 메모리 할당, 변환 함수 등
-#include <string.h>               // 문자열 처리 함수
-#include <unistd.h>               // usleep 함수
-#include <signal.h>               // SIGINT 처리
-#include "MQTTClient.h"           // Paho MQTT C 클라이언트
-#include <sys/types.h>            // select, fd_set 사용
-#include <sys/select.h>           // select 함수 사용
-#include <wiringPi.h>             // GPIO 제어
-#include <softPwm.h>              // 소프트 PWM
-
-// 방향 정의
-#define NORTH   0    // 북쪽
-#define EAST    1    // 동쪽
-#define SOUTH   2    // 남쪽
-#define WEST    3    // 서쪽
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <signal.h>
+#include <MQTTClient.h>
+#include <gpiod.h>
+#include <sys/types.h>
+#include <sys/select.h>
 
 // MQTT 설정
 #define ADDRESS   "tcp://broker.hivemq.com:1883"  // 브로커 주소
@@ -30,18 +23,25 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lwiringPi
 #define QOS       0                         // QoS 레벨
 #define TIMEOUT   10000L                    // 연결 타임아웃 (ms)
 
+// 방향 정의
+#define NORTH   0    // 북쪽
+#define EAST    1    // 동쪽
+#define SOUTH   2    // 남쪽
+#define WEST    3    // 서쪽
+
 // 그리드 및 경로 설정
 #define ROWS      7     // 행 개수
 #define COLS      9     // 열 개수
 #define MAX_PATH  100   // 최대 경로 길이
 
-// 모터 제어 핀 설정 (WiringPi BCM 모드)
-#define AIN1 22
-#define AIN2 27
-#define PWMA 18
-#define BIN1 25
-#define BIN2 24
-#define PWMB 23
+// 모터 제어 핀 설정
+#define CHIP "gpiochip4"
+#define IN1_PIN 17
+#define IN2_PIN 18
+#define ENA_PIN 12
+#define IN3_PIN 22
+#define IN4_PIN 23
+#define ENB_PIN 13
 
 // 모터 동작 타이밍 (초)
 #define SECONDS_PER_GRID_STEP       1.1
@@ -61,29 +61,12 @@ typedef struct Node {
     struct Node *parent;// 부모 노드 포인터
 } Node;
 
-// 전역 변수
-static MQTTClient client;
-static int grid[ROWS][COLS] = {
-    {'A',0,0,0,0,0,0,0,0},
-    {0,1,1,1,0,1,1,1,0},
-    {0,1,'S',1,0,1,'G',1,0},
-    {0,0,0,0,0,0,0,0,0},
-    {0,1,1,1,0,1,1,1,0},
-    {0,1,'K',1,0,1,'W',1,0},
-    {0,0,0,0,0,0,0,0,'B'}
-};
-static Point path[MAX_PATH];            // 계산된 경로 저장
-static int   path_len = 0;              // 경로 길이
-static int   path_idx = 0;              // 경로 인덱스
-static Point current_pos = {6, 8};      // B 차량 초기 위치
-static int   dirB = NORTH;              // B 차량 초기 방향
-static volatile int move_permission = 0;
-static volatile int is_waiting = 0;
-static volatile int need_replan = 0;
-static char  goalsB[] = {'W','B','S','B','G','B','K','B'};
+static struct gpiod_chip *chip;
+static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
 
 // 프로토타입
 static void handle_sigint(int sig);
+static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int ena_val, int enb_val);
 static void motor_go(void);
 static void motor_stop(void);
 static void motor_right(void);
@@ -91,6 +74,7 @@ static void motor_left(void);
 static void delay_sec(double sec);
 static void rotate_one(int *dir, int turn_dir);
 static void forward_one(Point *pos, int dir);
+
 Point  find_point_by_char(char ch);
 int    heuristic(Point a, Point b);
 int    is_valid(int r, int c);
@@ -103,10 +87,32 @@ void   publish_status(Point *path, int idx, int len);
 void   print_grid_with_dir(Point pos, int dir);
 int    msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message);
 
+static Point path[MAX_PATH];            // 계산된 경로 저장
+static int   path_len = 0;              // 경로 길이
+static int   path_idx = 0;              // 경로 인덱스
+static Point current_pos = {6, 8};      // B 차량 초기 위치
+static int   dirB = NORTH;              // B 차량 초기 방향
+static volatile int move_permission = 0;
+static volatile int is_waiting = 0;
+static volatile int need_replan = 0;
+static char  goalsB[] = {'W','B','S','B','G','B','K','B'};
+
+// 전역 변수
+static MQTTClient client;
+static int grid[ROWS][COLS] = {
+    {'A',0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'S',1,0,1,'G',1,0},
+    {0,0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'K',1,0,1,'W',1,0},
+    {0,0,0,0,0,0,0,0,'B'}
+};
+
 // SIGINT 핸들러
 static void handle_sigint(int sig) {
-    (void)sig;
     motor_stop();
+    gpiod_chip_close(chip);
     exit(0);
 }
 
@@ -115,32 +121,37 @@ static void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
 }
 
+static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int ena_val, int enb_val) {
+    gpiod_line_set_value(in1, in1_val);
+    gpiod_line_set_value(in2, in2_val);
+    gpiod_line_set_value(in3, in3_val);
+    gpiod_line_set_value(in4, in4_val);
+    gpiod_line_set_value(ena, ena_val);
+    gpiod_line_set_value(enb, enb_val);
+}
+
 static void motor_go(void) {
     printf("[motor] GO\n");   fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+    motor_control(1, 0, 1, 0, 1, 1);
+    delay_sec(0.1);
 }
 
 static void motor_stop(void) {
     printf("[motor] STOP\n"); fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 0);    softPwmWrite(PWMB, 0);
+    motor_control(0, 0, 0, 0, 0, 0);
+    delay_sec(0.1);
 }
 
 static void motor_right(void) {
     printf("[motor] RIGHT\n"); fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, HIGH); digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+    motor_control(1, 0, 0, 1, 1, 1);
+    delay_sec(0.1);
 }
 
 static void motor_left(void) {
     printf("[motor] LEFT\n"); fflush(stdout);
-    digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+    motor_control(0, 1, 1, 0, 1, 1);
+    delay_sec(0.1);
 }
 
 static void rotate_one(int *dir, int turn_dir) {
@@ -351,11 +362,23 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
 
 int main(void) {
     signal(SIGINT, handle_sigint);
-    wiringPiSetupGpio();
-    pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-    pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-    softPwmCreate(PWMA, 0, 100); softPwmCreate(PWMB, 0, 100);
 
+    chip = gpiod_chip_open_by_name(CHIP);
+
+    in1 = gpiod_chip_get_line(chip, IN1_PIN);
+    in2 = gpiod_chip_get_line(chip, IN2_PIN);
+    ena = gpiod_chip_get_line(chip, ENA_PIN);
+    in3 = gpiod_chip_get_line(chip, IN3_PIN);
+    in4 = gpiod_chip_get_line(chip, IN4_PIN);
+    enb = gpiod_chip_get_line(chip, ENB_PIN);
+
+    gpiod_line_request_output(in1, "IN1", 0);
+    gpiod_line_request_output(in2, "IN2", 0);
+    gpiod_line_request_output(ena, "ENA", 0);
+    gpiod_line_request_output(in3, "IN3", 0);
+    gpiod_line_request_output(in4, "IN4", 0);
+    gpiod_line_request_output(enb, "ENB", 0);
+    
     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
     MQTTClient_create(&client, ADDRESS, CLIENTID,
                       MQTTCLIENT_PERSISTENCE_NONE, NULL);
