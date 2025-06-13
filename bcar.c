@@ -36,12 +36,12 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 
 // 모터 제어 핀 설정
 #define CHIP "gpiochip4"
-#define IN1_PIN 17
-#define IN2_PIN 18
-#define ENA_PIN 12
-#define IN3_PIN 22
-#define IN4_PIN 23
-#define ENB_PIN 13
+#define IN1_PIN 22
+#define IN2_PIN 27
+#define ENA_PIN 18
+#define IN3_PIN 25
+#define IN4_PIN 24
+#define ENB_PIN 23
 
 // 모터 동작 타이밍 (초)
 #define SECONDS_PER_GRID_STEP       1.1
