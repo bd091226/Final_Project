@@ -37,8 +37,8 @@
 #define GPIO_LINE2      19  // 하양 LED
 #define GPIO_LINE3      16  // 초록 LED
 
-#define MOTOR_IN1       22  // L298N IN1
-#define MOTOR_IN2       27  // L298N IN2
+#define MOTOR_IN1       6  // L298N IN1
+#define MOTOR_IN2       12  // L298N IN2
 #define BUTTON_PIN      17  // 버튼 입력 핀
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
