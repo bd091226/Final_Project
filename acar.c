@@ -80,7 +80,6 @@ static Point current_pos = {0, 0};      // A 차량 초기 위치
 static int dirA = SOUTH;                // A 차량 초기 방향
 static volatile int move_permission = 0;
 static volatile int is_waiting = 0;
-static char goalsA[] = {'K','G','S','W','A'};
 
 // 전역 변수 추가
 static volatile int has_new_goal = 0;
@@ -442,12 +441,15 @@ int main(void) {
 
             if (diff < 0) {
                 puts("[A] TURN_LEFT");
-                dirA = (dirA + diff + 4) % 4;
+                rotate_one(&dirA,-1);
             } else if (diff > 0) {
                 puts("[A] TURN_RIGHT");
-                dirA = (dirA + diff) % 4;
+                rotate_one(&dirA, +1);
             } else {
                 puts("[A] FORWARD");
+                motor_go(); 
+                delay_sec(SECONDS_PER_GRID_STEP); 
+                motor_stop();
                 current_pos = nxt;
                 path_idx++;
             }

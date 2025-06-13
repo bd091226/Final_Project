@@ -128,16 +128,16 @@ void startpoint()
 
 // 보관함 목적지 도착 시 실행되는 함수
 // MQTT로 "목적지 도착" 메시지 발행
-void dest_arrived(const char *dest) {
-    char msg_buffer[128];
-    snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
+// void dest_arrived(const char *dest) {
+//     char msg_buffer[128];
+//     snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
 
-    // 컨베이어벨트 작동
+//     // 컨베이어벨트 작동
 
-    if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-        printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-    }
-}
+//     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+//         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+//     }
+// }
 
 // A차에 적재된 물품이 없는 경우 다시 출발지점으로 돌아와서 도착을 함을 송신
 void empty()
