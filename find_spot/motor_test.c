@@ -1,4 +1,9 @@
-//libgpio로 모터 테스트
+/*libgpio로 모터 테스트
+컴파일 :
+gcc motor_test.c -o motor_test -lgpiod
+실행 :
+./motor_test
+*/
 #include <gpiod.h>
 #include <stdio.h>
 #include <string.h>
@@ -102,11 +107,20 @@ int main() {
         return 1;
     }
 
+    pwma = gpiod_chip_get_line(chip, PWMA);  // BCM 18
+    pwmb = gpiod_chip_get_line(chip, PWMB);  // BCM 23
+
+    if (!pwma || gpiod_line_request_output(pwma, "PWMA", 1) < 0) {
+        perror("PWMA 설정 실패");
+        exit(1);
+    }
+    if (!pwmb || gpiod_line_request_output(pwmb, "PWMB", 1) < 0) {
+        perror("PWMB 설정 실패");
+        exit(1);
+    }
     // BCM GPIO 번호로 라인 초기화
-    pwma = init_line("PWMA", PWMA);
     ain1 = init_line("AIN1", AIN1);
     ain2 = init_line("AIN2", AIN2);
-    pwmb = init_line("PWMB", PWMB);
     bin1 = init_line("BIN1", BIN1);
     bin2 = init_line("BIN2", BIN2);
 
@@ -133,7 +147,13 @@ int main() {
             printf("Unknown command.\n");
         }
     }    
-
+    gpiod_line_release(pwma);
+    gpiod_line_release(pwmb);
+    gpiod_line_release(ain1);
+    gpiod_line_release(ain2);
+    gpiod_line_release(bin1);
+    gpiod_line_release(bin2);
+    
     gpiod_chip_close(chip);
     return 0;
 }
