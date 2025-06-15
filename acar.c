@@ -442,11 +442,6 @@ int main(void) {
     in2 = gpiod_chip_get_line(chip, IN2_PIN);
     in3 = gpiod_chip_get_line(chip, IN3_PIN);
     in4 = gpiod_chip_get_line(chip, IN4_PIN);
-
-    in1 = gpiod_chip_get_line(chip, IN1_PIN);
-    in2 = gpiod_chip_get_line(chip, IN2_PIN);
-    in3 = gpiod_chip_get_line(chip, IN3_PIN);
-    in4 = gpiod_chip_get_line(chip, IN4_PIN);
     
     // 방향제어 핀들을 출력으로 설정
     if (gpiod_line_request_output(in1, "IN1", 0) < 0 ||
