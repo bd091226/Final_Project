@@ -1,224 +1,139 @@
-////나중에 가속도랑 쓸 코드
-
-
+//libgpio로 모터 테스트
+#include <gpiod.h>
 #include <stdio.h>
-#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-#include <math.h>
-#include <signal.h>
-#include <sys/time.h>
+#include <stdlib.h>
 
-#include <wiringPi.h>
-#include <softPwm.h>
-#include "imu_wrapper.h"  // RTIMULib2 C++ 래퍼 헤더
+#define CHIPNAME "gpiochip0"
 
-//=============== 모터 핀 정의 ================
+// BCM 핀 번호
+#define PWMA 18
 #define AIN1 22
 #define AIN2 27
-#define PWMA 18
-
+#define PWMB 23
 #define BIN1 25
 #define BIN2 24
-#define PWMB 23
 
-//=============== 전역 <격자 위치·방향> ================
-typedef enum {
-    NORTH = 0,
-    EAST  = 1,
-    SOUTH = 2,
-    WEST  = 3
-} Direction;
+struct gpiod_chip *chip;
+struct gpiod_line *pwma, *ain1, *ain2, *pwmb, *bin1, *bin2;
 
-typedef struct {
-    int x;
-    int y;
-    Direction dir;
-} Position;
+// 디지털 출력 제어 함수
+void set_line(struct gpiod_line *line, int value) {
+    gpiod_line_set_value(line, value);
+}
 
-// 초기 위치 (0,0), 방향 NORTH
-static Position pos = {0, 0, NORTH};
+// "PWM" 흉내 내기 (단순 토글, 정확한 PWM 제어는 별도 구현 필요)
+void pwm_write(struct gpiod_line *line, int duty_cycle) {
+    int on_time = duty_cycle * 100;
+    int off_time = (100 - duty_cycle) * 100;
+    set_line(line, 1);
+    usleep(on_time);
+    set_line(line, 0);
+    usleep(off_time);
+}
 
-static const char *dir_name(Direction d) {
-    switch (d) {
-        case NORTH: return "NORTH";
-        case EAST:  return "EAST";
-        case SOUTH: return "SOUTH";
-        case WEST:  return "WEST";
-        default:    return "UNKNOWN";
+void motor_go() {
+    printf("go\n");
+    set_line(ain1, 0);
+    set_line(ain2, 1);
+    set_line(bin1, 0);
+    set_line(bin2, 1);
+
+    // 지속 동작: PWM 핀 high
+    set_line(pwma, 1);
+    set_line(pwmb, 1);
+}
+
+void motor_back(int speed) {
+    printf("back\n");
+    set_line(ain1, 1);
+    set_line(ain2, 0);
+    set_line(bin1, 1);
+    set_line(bin2, 0);
+    pwm_write(pwma, speed);
+    pwm_write(pwmb, speed);
+}
+
+void motor_left(int speed) {
+    printf("left\n");
+    set_line(ain1, 1);
+    set_line(ain2, 0);
+    set_line(bin1, 0);
+    set_line(bin2, 1);
+    pwm_write(pwma, speed);
+    pwm_write(pwmb, speed);
+}
+
+void motor_right(int speed) {
+    printf("right\n");
+    set_line(ain1, 0);
+    set_line(ain2, 1);
+    set_line(bin1, 1);
+    set_line(bin2, 0);
+    pwm_write(pwma, speed);
+    pwm_write(pwmb, speed);
+}
+
+void motor_stop() {
+    printf("stop\n");
+    // 방향 유지 상관없음. PWM만 끔.
+    set_line(pwma, 0);
+    set_line(pwmb, 0);
+}
+
+// GPIO 초기화
+struct gpiod_line* init_line(const char* name, int offset) {
+    struct gpiod_line* line = gpiod_chip_get_line(chip, offset);
+    if (gpiod_line_request_output(line, name, 0) < 0) {
+        perror("Line request failed");
+        exit(1);
     }
-}
-
-//=============== 상수: 시간 기반 전진 ================
-#define TIME_PER_CM_US 100500UL  // 1 cm당 약 100.5 ms
-#define FORWARD_DIST_CM 30.0f
-
-//=============== 모터 제어 함수 ================
-static void motor_go() {
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-static void motor_stop() {
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 0);
-    softPwmWrite(PWMB, 0);
-}
-
-static void motor_right() {
-    digitalWrite(AIN1, LOW);
-    digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, HIGH);
-    digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-static void motor_left() {
-    digitalWrite(AIN1, HIGH);
-    digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);
-    digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 50);
-    softPwmWrite(PWMB, 50);
-}
-
-//=============== SIGINT 핸들러 ================
-static void handle_sigint(int sig) {
-    printf("\n🛑 인터럽트 발생 - 모터 정지 후 종료합니다.\n");
-    motor_stop();
-    exit(0);
-}
-
-//=============== 회전: IMU 기반 90° 우회전 ================
-static void rotate_right_90_imu() {
-    printf("↩ 우회전 시작 (IMU 제어)\n");
-
-    float initialYaw = imu_getYaw();  // IMU에서 현재 yaw(라디안) 읽기
-
-    motor_right();
-
-    const float TARGET_RAD = M_PI / 2.0f;                // 90°
-    const float YAW_TOLERANCE = 1.5f * (M_PI / 180.0f);  // ±1.5°
-
-    while (1) {
-        float currentYaw = imu_getYaw();
-        float deltaYaw = currentYaw - initialYaw;
-        // [–π, +π] 범위로 wrap
-        if (deltaYaw >  M_PI)   deltaYaw -= 2.0f * M_PI;
-        if (deltaYaw < -M_PI)   deltaYaw += 2.0f * M_PI;
-
-        // 우회전 방향은 deltaYaw가 양수로 증가
-        if (deltaYaw >= (TARGET_RAD - YAW_TOLERANCE)) {
-            break;
-        }
-        usleep(5000);
-    }
-
-    motor_stop();
-    pos.dir = (pos.dir + 1) % 4;
-    printf("📐 우회전 완료 (~90°). 방향: %s\n", dir_name(pos.dir));
-}
-
-//=============== 회전: IMU 기반 90° 좌회전 ================
-static void rotate_left_90_imu() {
-    printf("↪ 좌회전 시작 (IMU 제어)\n");
-
-    float initialYaw = imu_getYaw();
-
-    motor_left();
-
-    const float TARGET_RAD = M_PI / 2.0f;
-    const float YAW_TOLERANCE = 1.5f * (M_PI / 180.0f);
-
-    while (1) {
-        float currentYaw = imu_getYaw();
-        float deltaYaw = currentYaw - initialYaw;
-        if (deltaYaw >  M_PI)   deltaYaw -= 2.0f * M_PI;
-        if (deltaYaw < -M_PI)   deltaYaw += 2.0f * M_PI;
-
-        // 좌회전 방향은 deltaYaw가 음수로 내려감
-        if (deltaYaw <= -(TARGET_RAD - YAW_TOLERANCE)) {
-            break;
-        }
-        usleep(5000);
-    }
-
-    motor_stop();
-    pos.dir = (pos.dir + 3) % 4;
-    printf("📐 좌회전 완료 (~90°). 방향: %s\n", dir_name(pos.dir));
-}
-
-//=============== 전진: 시간 기반 제어 ================
-static void move_forward_by_time(float target_cm) {
-    unsigned long duration_us = (unsigned long)roundf(target_cm * TIME_PER_CM_US);
-    printf("▶ 전진 시작: 목표 %.2f cm, 약 %lu μs 동안 전진\n", target_cm, duration_us);
-    motor_go();
-    usleep(duration_us);
-    motor_stop();
-
-    int grid_steps = (int)roundf(target_cm / 30.0f);
-    switch (pos.dir) {
-        case NORTH: pos.y += grid_steps; break;
-        case EAST:  pos.x += grid_steps; break;
-        case SOUTH: pos.y -= grid_steps; break;
-        case WEST:  pos.x -= grid_steps; break;
-    }
-    printf("📍 전진 완료(시간 제어). 격자=(%d,%d), 방향=%s\n",
-           pos.x, pos.y, dir_name(pos.dir));
-}
-
-//=============== 모터 셋업 ================
-static void setup_motors() {
-    wiringPiSetupGpio();
-    pinMode(AIN1, OUTPUT);
-    pinMode(AIN2, OUTPUT);
-    pinMode(BIN1, OUTPUT);
-    pinMode(BIN2, OUTPUT);
-    softPwmCreate(PWMA, 0, 100);
-    softPwmCreate(PWMB, 0, 100);
+    return line;
 }
 
 int main() {
-    signal(SIGINT, handle_sigint);
+    char cmd[20];
+    int speed = 50;
 
-    // 1) IMU 초기화 (C 래퍼를 통해 RTIMULib2 사용)
-    imu_init();
-    printf("[RTIMULib2] IMU 초기화 완료 (C 래퍼 via imu_init)\n");
+    chip = gpiod_chip_open_by_name(CHIPNAME);
+    if (!chip) {
+        perror("Open chip failed");
+        return 1;
+    }
 
-    // 2) 모터 초기화
-    setup_motors();
+    // BCM GPIO 번호로 라인 초기화
+    pwma = init_line("PWMA", PWMA);
+    ain1 = init_line("AIN1", AIN1);
+    ain2 = init_line("AIN2", AIN2);
+    pwmb = init_line("PWMB", PWMB);
+    bin1 = init_line("BIN1", BIN1);
+    bin2 = init_line("BIN2", BIN2);
 
-    //===============================================
-    //  메인 시나리오:
-    //   1) 30 cm 전진 → 2) 좌회전(IMU) → 3) 30 cm 전진 → 4) 우회전(IMU)
-    //===============================================
-    printf("\n=== 시간 기반 전진 + IMU 기반 회전 테스트 ===\n\n");
+    while (1) {
+        printf("Enter command (go/back/left/right/stop): ");
+        fgets(cmd, sizeof(cmd), stdin);
+        cmd[strcspn(cmd, "\n")] = 0;
+    
+        if (strcmp(cmd, "go") == 0) {
+            motor_go(speed);  // 전진 → stop 명령 전까지 계속 유지됨
+        } else if (strcmp(cmd, "back") == 0) {
+            motor_back(speed);
+        } else if (strcmp(cmd, "left") == 0) {
+            motor_left(speed);
+            sleep(3);     // 회전 후 자동 정지
+            motor_stop();
+        } else if (strcmp(cmd, "right") == 0) {
+            motor_right(speed);
+            sleep(3);     // 회전 후 자동 정지
+            motor_stop();
+        } else if (strcmp(cmd, "stop") == 0) {
+            motor_stop();
+        } else {
+            printf("Unknown command.\n");
+        }
+    }    
 
-    // 1) 30cm 전진
-    move_forward_by_time(FORWARD_DIST_CM);
-    sleep(1);
-
-    // 2) 90° 좌회전 (IMU)
-    rotate_left_90_imu();
-    sleep(1);
-
-    // 3) 30cm 전진
-    move_forward_by_time(FORWARD_DIST_CM);
-    sleep(1);
-
-    // 4) 90° 우회전 (IMU)
-    rotate_right_90_imu();
-    sleep(1);
-
-    printf("\n🎯 최종 위치: (%d, %d), 방향: %s\n",
-           pos.x, pos.y, dir_name(pos.dir));
-
+    gpiod_chip_close(chip);
     return 0;
 }
