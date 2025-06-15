@@ -1,5 +1,9 @@
-// main.c
-
+/*
+컴파일 :
+gcc main.c -o main -lpaho-mqtt3c -lgpiod
+실행   :
+./main
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
