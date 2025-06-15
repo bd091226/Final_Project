@@ -354,7 +354,7 @@ def B_destination():
 
 # B차 구역함에 도착할 때
 # 수정필요!!!!
-def zone_arrival_B(conn, cursor, 구역_ID='02', 차량_ID='B-1001'):
+def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
     """
     - region의 현재 보관 수량 조회
     - vehicle current_load 업데이트

@@ -9,12 +9,14 @@
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장
 #define TOPIC_B_DEST "storage/b_dest" // B차 목적지 토픽
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived" 
-#define TOPIC_B_HOME        "storage/b_home"
-#define TOPIC_B_HOME_ARRIVED   "storage/b_home_arrived"
+#define TOPIC_B_POINT        "storage/b_point"
+#define TOPIC_B_POINT_ARRIVED   "storage/b_point_arrived"
 #define QOS 1
 #define TIMEOUT 10000L
 
 MQTTClient client;
+
+char current_zone[64] = {0}; // 현재 목적지 구역 ID를 저장하는 전역 변수  
 
 // db_access.py에서 목적지 구역 ID를 가져오는 함수
 char *B_destination()
@@ -46,6 +48,28 @@ char *B_destination()
     return result;
 }
 
+void publish_point()
+{
+    MQTTClient_message pubmsg = MQTTClient_message_initializer;
+    const char *payload = "B차량 출발지점으로 출발";
+
+    pubmsg.payload = (char *)payload;
+    pubmsg.payloadlen = (int)strlen(payload);
+    pubmsg.qos = QOS;
+    pubmsg.retained = 0;
+
+    MQTTClient_deliveryToken token;
+    int rc = MQTTClient_publishMessage(client, TOPIC_B_POINT, &pubmsg, &token);
+
+    if (rc == MQTTCLIENT_SUCCESS)
+    {
+        printf("[송신] %s → %s\n", TOPIC_B_POINT, payload);
+    }
+    else
+    {
+        fprintf(stderr, "MQTT publish failed (출발 메시지), rc=%d\n", rc);
+    }
+}
 // 메시지 송신 함수
 void publish_zone(const char *구역_ID)
 {
@@ -68,7 +92,7 @@ void publish_zone(const char *구역_ID)
     if (rc == MQTTCLIENT_SUCCESS)
     {
         // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        printf("[송신] %s → %s\n", TOPIC_B_DEST, 구역_ID);
+        printf("[송신] %s → %s로 이동\n", TOPIC_B_DEST, 구역_ID);
     }
     else
     {
@@ -89,16 +113,24 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
 
     if(strcmp(topicName,TOPIC_B_DEST_ARRIVED)==0)
     {
+        char msgPayload[512]; // 예: "02 도착"
+        strncpy(msgPayload, message->payload, message->payloadlen);
+        msgPayload[message->payloadlen] = '\0';
+
+        char zone_id = msgPayload[0];  // 문자 하나
+        char zone_id_str[2] = { zone_id, '\0' };  // 문자열로 변환
+
         char cmd2[512];
         snprintf(cmd2, sizeof(cmd2),
                 "python3 - << 'EOF'\n"
                 "from db_access import get_connection, zone_arrival_B\n"
                 "conn = get_connection()\n"
                 "cur = conn.cursor()\n"
-                "zone_arrival_B(conn, cur, '%s', 2)\n"
+                "zone_arrival_B(conn, cur, '%s', '%s')\n"
                 "conn.close()\n"
                 "EOF",
-                msg);
+                zone_id_str,
+                "B-1001");
         if (system(cmd2) != 0)
         {
             fprintf(stderr, "❌ zone_arrival_B() 실행 실패 (zone=%s)\n", msg);
@@ -106,12 +138,13 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         else
         {
             printf("✅ zone_arrival_B() 실행 완료\n");
+            publish_zone("B");// 
         }
     }
     
-    if(strcmp(topicName,TOPIC_B_HOME_ARRIVED)==0)
+    if(strcmp(topicName,TOPIC_B_POINT_ARRIVED)==0)
     {
-        printf("출발지점 도착\n");
+        publish_zone(current_zone);    // 목적지 zone ID 발행
     }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -143,18 +176,19 @@ int main(int argc, char *argv[])
 
 
     MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
-    MQTTClient_subscribe(client, TOPIC_B_HOME_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_POINT_ARRIVED, QOS);
     int rc1 = MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
     if (rc1 != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "ERROR: TOPIC_B_DEST_ARRIVED 구독 실패, rc=%d\n", rc1);
         return -1;
     }
-    int rc2 = MQTTClient_subscribe(client, TOPIC_B_HOME_ARRIVED, QOS);
+    int rc2 = MQTTClient_subscribe(client, TOPIC_B_POINT_ARRIVED, QOS);
     if (rc2 != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "ERROR: TOPIC_B_HOME_ARRIVED 구독 실패, rc=%d\n", rc2);
         return -1;
     }
 
+    int waiting_for_arrival = 0;  // 0: 조회 가능, 1: 도착 대기 중
     char prev_zone[64] = {0};
     // 주기적 또는 이벤트 기반 호출 예시
     while (1)
@@ -163,20 +197,22 @@ int main(int argc, char *argv[])
         // ① 네트워크 I/O 처리 (메시지 수신 콜백을 실행시키기 위해)
         MQTTClient_yield();
 
-        // ② DB에서 새 목적지 조회
-        char *zone = B_destination();
-        if (zone && *zone)
+        if (!waiting_for_arrival)
         {
-            // “새로운” 구역 ID일 때만 발행
-            if (strcmp(zone, prev_zone) != 0)
+            char *zone = B_destination();
+            if (zone && *zone && strcmp(zone, prev_zone) != 0)
             {
-                publish_zone(zone);
-                // prev_zone을 갱신
+                publish_point();       // 출발지점 메시지 발행
+
+                strncpy(current_zone, zone, sizeof(current_zone) - 1); // 현재 목적지를 전역 변수에 저장
+                current_zone[sizeof(current_zone) - 1] = '\0';
+                // publish_zone(zone);    // 목적지 zone ID 발행
                 strncpy(prev_zone, zone, sizeof(prev_zone) - 1);
                 prev_zone[sizeof(prev_zone) - 1] = '\0';
+
+                waiting_for_arrival = 1;  // 출발 이후에는 도착 대기 상태로 전환
             }
         }
-        // (만약 B_destination()이 NULL이거나 빈 문자열이라면 아무 것도 하지 않음)
 
         sleep(5); // 5초 간격으로 폴링
     }
