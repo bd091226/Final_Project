@@ -1,6 +1,6 @@
 /*
 컴파일 :
-gcc acar.c -o acar -lpaho-mqtt3c -lwiringPi
+gcc acar.c -o acar -lpaho-mqtt3c -lgpiod
 실행   :
 ./acar
 */
@@ -10,17 +10,10 @@ gcc acar.c -o acar -lpaho-mqtt3c -lwiringPi
 #include <string.h>               // 문자열 처리 함수
 #include <unistd.h>               // usleep 함수
 #include <signal.h>               // SIGINT 처리
-#include "MQTTClient.h"           // Paho MQTT C 클라이언트
+#include <MQTTClient.h>           // Paho MQTT C 클라이언트
+#include <gpiod.h>
 #include <sys/types.h>            // select, fd_set 사용
 #include <sys/select.h>           // select 함수 사용
-#include <wiringPi.h>             // GPIO 제어
-#include <softPwm.h>              // 소프트 PWM
-
-// 방향 정의
-#define NORTH   0
-#define EAST    1
-#define SOUTH   2
-#define WEST    3
 
 // MQTT 설정
 #define ADDRESS   "tcp://broker.hivemq.com:1883"
@@ -30,37 +23,34 @@ gcc acar.c -o acar -lpaho-mqtt3c -lwiringPi
 
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
 #define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
-
 #define QOS       0
 #define TIMEOUT   10000L
+
+// 방향 정의
+#define NORTH   0
+#define EAST    1
+#define SOUTH   2
+#define WEST    3
+
 
 // 그리드 설정
 #define ROWS      7
 #define COLS      9
 #define MAX_PATH 100
 
-// 모터 제어 핀 설정 (WiringPi BCM 모드)
-#define AIN1 22
-#define AIN2 27
-#define PWMA 18
-#define BIN1 25
-#define BIN2 24
-#define PWMB 23
+// 모터 제어 핀 설정
+#define CHIP "gpiochip0"
+#define IN1_PIN 22
+#define IN2_PIN 27
+#define ENA_PIN 18
+#define IN3_PIN 25
+#define IN4_PIN 24
+#define ENB_PIN 23
 
 // 모터 동작 타이밍 (초)
 #define SECONDS_PER_GRID_STEP       1.1
-#define SECONDS_PER_90_DEG_ROTATION 0.8
+#define SECONDS_PER_90_DEG_ROTATION 0.9
 #define PRE_ROTATE_FORWARD_CM       8.0f
-
-// 점 좌표 구조체
-typedef struct { int r, c; } Point;
-
-// A* 노드 구조체
-typedef struct Node {
-    Point pt;           // 현재 위치
-    int g, h, f;        // g: 시작->현재, h: 휴리스틱, f=g+h
-    struct Node *parent; // 부모 노드 포인터
-} Node;
 
 // 전역 상태
 static MQTTClient client;
@@ -73,28 +63,31 @@ static int grid[ROWS][COLS] = {
     {0,1,'K',1,0,1,'W',1,0},
     {0,0,0,0,0,0,0,0,'B'}
 };
-static Point path[MAX_PATH];            // 계산된 경로 저장
-static int path_len = 0;                // 경로 길이
-static int path_idx = 0;                // 경로 인덱스
-static Point current_pos = {0, 0};      // A 차량 초기 위치
-static int dirA = SOUTH;                // A 차량 초기 방향
-static volatile int move_permission = 0;
-static volatile int is_waiting = 0;
 
-// 전역 변수 추가
-static volatile int has_new_goal = 0;
-static char current_goal_char = '\0';
-static char last_goal_char = '\0';
+// 점 좌표 구조체
+typedef struct { int r, c; } Point;
 
-// 함수 프로토타입
+// A* 노드 구조체
+typedef struct Node {
+    Point pt;           // 현재 위치
+    int g, h, f;        // g: 시작->현재, h: 휴리스틱, f=g+h
+    struct Node *parent; // 부모 노드 포인터
+} Node;
+
+static struct gpiod_chip *chip;
+static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
+static MQTTClient client;
+
+// 프로토타입
 static void handle_sigint(int sig);
-static void delay_sec(double sec);
-static void motor_go(void);
+static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
+static void motor_go(int speed, double duration);
 static void motor_stop(void);
-static void motor_right(void);
-static void motor_left(void);
-static void rotate_one(int *dir, int turn_dir);
-static void forward_one(Point *pos, int dir);
+static void motor_right(int speed, double duration);
+static void motor_left(int speed, double duration);
+static void rotate_one(int *dir, int turn_dir, int speed);
+static void forward_one(Point *pos, int dir, int speed);
+
 Point  find_point_by_char(char ch);
 int    heuristic(Point a, Point b);
 int    is_valid(int r, int c);
@@ -107,70 +100,86 @@ void   publish_multi_status(Point *path, int idx, int len);
 void   print_grid_with_dir(Point pos, int dir);
 int    msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message);
 
+// 전역 변수 추가
+static volatile int has_new_goal = 0;
+static char current_goal_char = '\0';
+static char last_goal_char = '\0';
+
+static Point path[MAX_PATH];            // 계산된 경로 저장
+static int path_len = 0;                // 경로 길이
+static int path_idx = 0;                // 경로 인덱스
+static Point current_pos = {0, 0};      // A 차량 초기 위치
+static int dirA = SOUTH;                // A 차량 초기 방향
+static volatile int move_permission = 0;
+static volatile int is_waiting = 0;
+
 // SIGINT 핸들러
 static void handle_sigint(int sig) {
-    (void)sig;
-    motor_stop();
+    gpiod_line_set_value(ena, 0);
+    gpiod_line_set_value(enb, 0);
+    gpiod_chip_close(chip);
     exit(0);
 }
 
-// 지연 함수
 static void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
 }
 
-// 모터 제어 함수
-static void motor_go(void) {
-    printf("[motor] GO\n");   fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+void motor_stop() {
+    gpiod_line_set_value(ena, 0);
+    gpiod_line_set_value(enb, 0);
 }
 
-static void motor_stop(void) {
-    printf("[motor] STOP\n"); fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 0);    softPwmWrite(PWMB, 0);
+void motor_go(int speed, double duration) {
+    gpiod_line_set_value(in1, 0);
+    gpiod_line_set_value(in2, 1);
+    gpiod_line_set_value(in3, 0);
+    gpiod_line_set_value(in4, 1);
+    gpiod_line_set_value(ena, 1);
+    gpiod_line_set_value(enb, 1);
+    usleep(duration * 1e6);
+    motor_stop();
 }
 
-static void motor_right(void) {
-    printf("[motor] RIGHT\n"); fflush(stdout);
-    digitalWrite(AIN1, LOW);  digitalWrite(AIN2, HIGH);
-    digitalWrite(BIN1, HIGH); digitalWrite(BIN2, LOW);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+void motor_left(int speed, double duration) {
+    gpiod_line_set_value(in1, 1);
+    gpiod_line_set_value(in2, 0);
+    gpiod_line_set_value(in3, 0);
+    gpiod_line_set_value(in4, 1);
+    gpiod_line_set_value(ena, 1);
+    gpiod_line_set_value(enb, 1);
+    usleep(duration * 1e6);
+    motor_stop();
 }
 
-static void motor_left(void) {
-    printf("[motor] LEFT\n"); fflush(stdout);
-    digitalWrite(AIN1, HIGH); digitalWrite(AIN2, LOW);
-    digitalWrite(BIN1, LOW);  digitalWrite(BIN2, HIGH);
-    softPwmWrite(PWMA, 100);  softPwmWrite(PWMB, 100);
+void motor_right(int speed, double duration) {
+    gpiod_line_set_value(in1, 0);
+    gpiod_line_set_value(in2, 1);
+    gpiod_line_set_value(in3, 1);
+    gpiod_line_set_value(in4, 0);
+    gpiod_line_set_value(ena, 1);
+    gpiod_line_set_value(enb, 1);
+    usleep(duration * 1e6);
+    motor_stop();
 }
 
-static void rotate_one(int *dir, int turn_dir) {
+void rotate_one(int *dir, int turn_dir, int speed) {
     double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * SECONDS_PER_GRID_STEP;
-    motor_go();
-    delay_sec(t0);
-    motor_stop();
-    delay_sec(0.1);
+    motor_go(speed, t0);
+    usleep(100000);
     if (turn_dir > 0)
-        motor_right();
+        motor_right(speed, SECONDS_PER_90_DEG_ROTATION);
     else
-        motor_left();
-    delay_sec(SECONDS_PER_90_DEG_ROTATION);
-    motor_stop();
+        motor_left(speed, SECONDS_PER_90_DEG_ROTATION);
     *dir = (*dir + turn_dir + 4) % 4;
 }
 
-static void forward_one(Point *pos, int dir) {
-    motor_go();
-    delay_sec(SECONDS_PER_GRID_STEP);
-    motor_stop();
+void forward_one(Point *pos, int dir, int speed) {
+    motor_go(speed, SECONDS_PER_GRID_STEP);
     switch (dir) {
         case NORTH: pos->r--; break;
-        case SOUTH: pos->r++; break;
         case EAST:  pos->c++; break;
+        case SOUTH: pos->r++; break;
         case WEST:  pos->c--; break;
     }
 }
@@ -357,7 +366,8 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
     {
         printf("[수신] %s\n", buf);
         if (!strcmp(buf,"move")) { 
-            is_waiting=0; 
+            is_waiting=0;
+            has_new_goal=1;
             move_permission=1; 
             puts(">> move");
         } else if (!strcmp(buf,"hold")) { 
@@ -376,7 +386,7 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
             } else {
                 current_goal_char = dest_char;
                 last_goal_char = dest_char;
-                has_new_goal = 1;
+                has_new_goal=1;
                 printf(">> 새 목적지 수신: %c\n", current_goal_char);
             }
         } 
@@ -392,14 +402,38 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
 
 int main(void) {
     signal(SIGINT, handle_sigint);
-    wiringPiSetupGpio();
-    pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
-    pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
-    softPwmCreate(PWMA,0,100); softPwmCreate(PWMB,0,100);
+
+    chip = gpiod_chip_open_by_name(CHIP);
+    // ENA/ENB 출력 설정
+    ena = gpiod_chip_get_line(chip, ENA_PIN);
+    enb = gpiod_chip_get_line(chip, ENB_PIN);
+    gpiod_line_request_output(ena, "ENA", 1);
+    gpiod_line_request_output(enb, "ENB", 1);
+
+    // 방향 제어 핀
+    in1 = gpiod_chip_get_line(chip, IN1_PIN);
+    in2 = gpiod_chip_get_line(chip, IN2_PIN);
+    in3 = gpiod_chip_get_line(chip, IN3_PIN);
+    in4 = gpiod_chip_get_line(chip, IN4_PIN);
+
+    in1 = gpiod_chip_get_line(chip, IN1_PIN);
+    in2 = gpiod_chip_get_line(chip, IN2_PIN);
+    in3 = gpiod_chip_get_line(chip, IN3_PIN);
+    in4 = gpiod_chip_get_line(chip, IN4_PIN);
+    
+    // 방향제어 핀들을 출력으로 설정
+    if (gpiod_line_request_output(in1, "IN1", 0) < 0 ||
+    gpiod_line_request_output(in2, "IN2", 0) < 0 ||
+    gpiod_line_request_output(in3, "IN3", 0) < 0 ||
+    gpiod_line_request_output(in4, "IN4", 0) < 0) {
+    perror("IN 핀 설정 실패");
+    return 1;
+    }
 
     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
     MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
+    
     if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "MQTT 연결 실패\n");
         return 1;
@@ -441,16 +475,13 @@ int main(void) {
 
             if (diff < 0) {
                 puts("[A] TURN_LEFT");
-                rotate_one(&dirA,-1);
+                rotate_one(&dirA, -1, 60);  // 속도 70으로 좌회전
             } else if (diff > 0) {
                 puts("[A] TURN_RIGHT");
-                rotate_one(&dirA, +1);
+                rotate_one(&dirA, +1, 60);  // 속도 70으로 우회전
             } else {
                 puts("[A] FORWARD");
-                motor_go(); 
-                delay_sec(SECONDS_PER_GRID_STEP); 
-                motor_stop();
-                current_pos = nxt;
+                forward_one(&current_pos, dirA, 60);  // 속도 70으로 전진
                 path_idx++;
             }
 
