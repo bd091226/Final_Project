@@ -51,6 +51,18 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 // ID 정의
 #define ID        "B"
 
+// 전역 변수
+static MQTTClient client;
+static int grid[ROWS][COLS] = {
+    {'A',0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'S',1,0,1,'G',1,0},
+    {0,0,0,0,0,0,0,0,0},
+    {0,1,1,1,0,1,1,1,0},
+    {0,1,'K',1,0,1,'W',1,0},
+    {0,0,0,0,0,0,0,0,'B'}
+};
+
 // 점 좌표 구조체
 typedef struct { int r, c; } Point;
 
@@ -66,7 +78,6 @@ static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
 
 // 프로토타입
 static void handle_sigint(int sig);
-// 프로토타입 선언부 수정
 static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
 static void motor_go(int speed, double duration);
 static void motor_stop(void);
@@ -96,18 +107,6 @@ static volatile int move_permission = 0;
 static volatile int is_waiting = 0;
 static volatile int need_replan = 0;
 static char  goalsB[] = {'W','B','S','B','G','B','K','B'};
-
-// 전역 변수
-static MQTTClient client;
-static int grid[ROWS][COLS] = {
-    {'A',0,0,0,0,0,0,0,0},
-    {0,1,1,1,0,1,1,1,0},
-    {0,1,'S',1,0,1,'G',1,0},
-    {0,0,0,0,0,0,0,0,0},
-    {0,1,1,1,0,1,1,1,0},
-    {0,1,'K',1,0,1,'W',1,0},
-    {0,0,0,0,0,0,0,0,'B'}
-};
 
 static void handle_sigint(int sig) {
     gpiod_line_set_value(ena, 0);
