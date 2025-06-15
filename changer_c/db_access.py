@@ -20,49 +20,6 @@ DB_CONFIG = {
 def get_connection():
     return pymysql.connect(**DB_CONFIG)
 
-def qr_insert(cursor, conn, type_, product_type):
-    zone_map = {
-        '서울': '02',
-        '경기': '031',
-        '경북': '054',
-        '강원': '033'
-    }
-    zone = zone_map.get(type_)
-    if not zone:
-        print(f"⚠️ Unknown zone type: {type_}")
-        return
-
-    try:
-        # 1) 해당 구역 포화 여부 조회
-        cursor.execute(
-            "SELECT is_full FROM region WHERE region_id = %s",
-            (zone,)
-        )
-        result = cursor.fetchone()
-        if not result:
-            print(f"❌ 구역 ID {zone} 존재하지 않음")
-            return
-
-        if result[0]:  # 포화 상태
-            print(f"❌ 구역 '{type_}'({zone})은 현재 포화 상태입니다. 등록할 수 없습니다.")
-            return
-
-        # 2) 택배 테이블에 새 건 등록
-        cursor.execute(
-            """
-            INSERT INTO package (package_type, region_id, package_status)  -- 택배_종류, 구역, 상태 컬럼 지정
-            VALUES (%s, %s, 'registered')                                 -- '등록됨' 상태로 삽입
-            """,
-            (product_type, zone)
-        )
-        product_id = cursor.lastrowid
-        conn.commit()
-        print(f"✅ 택배 등록 완료: ID={product_id}, 구역={type_}({zone})")
-
-    except Exception as e:
-        print(f"❌ QR 등록 중 오류: {e}")
-
-
 # A차에 벨트 버튼을 누를시 A차 적재 수량 1씩 증가
 # 수정필요!!! 임시로 차량 ID를 고정해놓음
 def button_A(cursor, conn, count, 차량_ID):
