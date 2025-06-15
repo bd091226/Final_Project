@@ -8,7 +8,8 @@
 #define CLIENTID "RaspberryPi_Bcar"
 #define TOPIC_B_DEST "storage/b_dest"
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived"
-#define TOPIC_B_HOME_ARRIVED "storage/b_home_arrived"
+#define TOPIC_B_POINT_ARRIVED "storage/b_point_arrived"
+#define TOPIC_B_POINT        "storage/b_point"
 #define QOS 1
 #define TIMEOUT 10000L
 
@@ -17,9 +18,6 @@ MQTTClient client;
 // B차 출발지점 도착
 void starthome()
 {
-    // 콘솔 출력
-    printf("출발지점 도착\n");
-
     // MQTT 발행
     char payload[64];
     // 페이로드 버퍼에 목적지 구역 ID를 복사
@@ -34,18 +32,19 @@ void starthome()
 
     MQTTClient_deliveryToken token;
 
-    int rc = MQTTClient_publishMessage(client, TOPIC_B_HOME_ARRIVED, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_B_POINT_ARRIVED, &pubmsg, &token);
     if (rc != MQTTCLIENT_SUCCESS)
     {
         fprintf(stderr, "도착 메시지 발행 실패, rc=%d\n", rc);
         return;
     }
+    printf("[송신] %s → %s\n", payload, TOPIC_B_POINT_ARRIVED);
 }
 // 메시지 송신
 void send_arrival(const char *zone_id)
 {
     // 콘솔 출력
-    printf("🚗 B차, %s 도착\n", zone_id);
+    //printf("[송신] B차, %s 도착\n", zone_id);
 
     // MQTT 발행
     char payload[64];
@@ -61,14 +60,14 @@ void send_arrival(const char *zone_id)
 
     MQTTClient_deliveryToken token;
 
-    int rc = MQTTClient_publishMessage(client, TOPIC_B_HOME_ARRIVED, &pubmsg, &token);
+    int rc = MQTTClient_publishMessage(client, TOPIC_B_POINT_ARRIVED, &pubmsg, &token);
     if (rc != MQTTCLIENT_SUCCESS)
     {
         fprintf(stderr, "도착 메시지 발행 실패, rc=%d\n", rc);
         return;
     }
     // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-    printf("[송신] %s → %s\n", payload, TOPIC_B_HOME_ARRIVED);
+    printf("[송신] %s → %s\n", payload, TOPIC_B_POINT_ARRIVED);
     sleep(3);
     starthome();
 }
@@ -80,13 +79,17 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     memcpy(msg, message->payload, message->payloadlen);
     msg[message->payloadlen] = '\0';
 
-    printf("[수신] 토픽: %s, 구역 ID: %s\n", topicName, msg);
+    printf("[수신] 토픽: %s ->  %s\n", topicName, msg);
 
-    if (strcmp(topicName, TOPIC_B_DEST) == 0)
+    // if (strcmp(topicName, TOPIC_B_DEST) == 0)
+    // {
+    //     sleep(2); // 출발 후 도착까지 딜레이
+    //     send_arrival(msg);
+    // }
+    if(strcmp(topicName, TOPIC_B_POINT) == 0)
     {
-        printf("🚗 B차, %s 구역 출발\n", msg);
-        sleep(2); // 출발 후 도착까지 딜레이
-        send_arrival(msg);
+        sleep(2); // 도착 후 딜레이
+        starthome();
     }
 
     MQTTClient_freeMessage(&message);
@@ -112,7 +115,11 @@ int main()
     }
 
     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_POINT, QOS);
+    
     printf("[B차] MQTT 브로커 연결 성공, 구독 시작: %s\n", TOPIC_B_DEST);
+    printf("[B차] MQTT 브로커 연결 성공, 구독 시작: %s\n", TOPIC_B_POINT);
+
 
     while (1)
     {

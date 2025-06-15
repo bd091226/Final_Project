@@ -8,11 +8,11 @@ import os
 # ------------------------ Map & Q-learning ------------------------
 
 raw_map = [
-    "00A1B",
-    "11010",
-    "S0000",
-    "11010",
-    "00C1D"
+    "G00100",
+    "100S01",
+    "00010K",
+    "B00001",
+    "0001W0"
 ]
 
 ROWS, COLS = len(raw_map), len(raw_map[0])
@@ -127,8 +127,8 @@ def plot_rewards(rewards, filename):
 
 if __name__ == "__main__":
     while True:
-        start_symbol = 'S'
-        goal_symbols = ['A', 'B', 'C', 'D']
+        start_symbol = 'B'
+        goal_symbols = ['S', 'G', 'K', 'W']
 
         start_pos = find_position(start_symbol)
         if start_pos is None:

@@ -234,7 +234,7 @@ Direction move_step(Position curr, Position next, Direction current_dir)
     int dx = next.x - curr.x;
     int dy = next.y - curr.y;
 
-    int current_idx = current_dir;
+    //int current_idx = current_dir;
     int target_idx = -1;
     for (int i = 0; i < 4; i++)
     {
@@ -251,7 +251,7 @@ Direction move_step(Position curr, Position next, Direction current_dir)
         return current_dir;
     }
 
-    int diff = (target_idx - current_idx + 4) % 4;
+    int diff = (target_idx - current_dir + 4) % 4;
 
     switch (diff)
     {
@@ -308,97 +308,187 @@ int load_path_from_file(const char *filename, Position path[])
     fclose(fp);
     return count;
 }
-
-int main()
+int run_vehicle_path(const char *goal)
 {
-    setup();
+    char path_filename[64];
+
+    char goal_str[2] = {goal[0], '\0'}; // goal이 'K'이면 "K"로 바뀜
+    snprintf(path_filename, sizeof(path_filename), "path_B_to_%s.txt", goal_str);
+
+    printf("경로 파일: %s\n", path_filename);
 
     Position path[MAX_PATH_LENGTH];
-    int path_len = load_path_from_file("path_S_to_B.txt", path);
-    Direction current_dir = E;
+    Direction current_dir = S; // 초기 방향 동쪽
 
+    int path_len = load_path_from_file(path_filename, path);
     if (path_len <= 0)
     {
         fprintf(stderr, "경로 파일 읽기 실패\n");
-        cleanup();
+        return 1;
+    }
+    printf("[차량 이동 시작: B → %s]\n", goal);
+    for (int i = 0; i < path_len - 1; i++)
+    {
+        current_dir = move_step(path[i], path[i + 1], current_dir);
+        // while (1)
+        // {
+        //     float distance = get_distance_cm();
+        //     if (distance < 0)
+        //     {
+        //         fprintf(stderr, "거리 측정 실패\n");
+        //         stop_motor();
+        //         break;
+        //     }
+        //     printf("거리: %.2f cm\n", distance);
+
+        //     if (distance < 10.0)
+        //     {
+        //         printf("거리 10cm 이하 - 차량 정지\n");
+        //         stop_motor();
+        //         delay_ms(100);
+        //     }
+        //     else
+        //     {
+        //         printf("이동 재개\n");
+        //         current_dir = move_step(path[i], path[i + 1], current_dir);
+        //         break; // 다음 위치로 진행
+        //     }
+        // }
+    }
+    snprintf(path_filename, sizeof(path_filename), "path_%s_to_B.txt", goal_str);
+    printf("\n복귀 경로 파일: %s\n", path_filename);
+
+    path_len = load_path_from_file(path_filename, path);
+    //current_dir = S; // 복귀 시 초기 방향을 남쪽 또는 적절히 설정
+
+    if (path_len <= 0)
+    {
+        fprintf(stderr, "경로 파일 읽기 실패 (%s → B)\n", goal);
         return 1;
     }
 
-    printf("[차량 이동 시작: S → B]\n");
+    printf("[차량 복귀 시작: %s → B]\n", goal);
 
     for (int i = 0; i < path_len - 1; i++)
     {
-        while (1)
-        {
-            float distance = get_distance_cm();
-            if (distance < 0)
-            {
-                fprintf(stderr, "거리 측정 실패\n");
-                stop_motor();
-                break;
-            }
-            printf("거리: %.2f cm\n", distance);
+        current_dir = move_step(path[i], path[i + 1], current_dir);
+        // while (1)
+        // {
+        //     float distance = get_distance_cm();
+        //     if (distance < 0)
+        //     {
+        //         fprintf(stderr, "거리 측정 실패\n");
+        //         stop_motor();
+        //         return 1;
+        //     }
 
-            if (distance < 10.0)
-            {
-                printf("거리 10cm 이하 - 차량 정지\n");
-                stop_motor();
-                delay_ms(100);
-            }
-            else
-            {
-                printf("이동 재개\n");
-                current_dir = move_step(path[i], path[i + 1], current_dir);
-                break; // 다음 위치로 진행
-            }
-        }
+        //     printf("거리: %.2f cm\n", distance);
+
+        //     if (distance < 10.0)
+        //     {
+        //         printf("거리 10cm 이하 - 차량 정지\n");
+        //         stop_motor();
+        //         delay_ms(100);
+        //     }
+        //     else
+        //     {
+        //         printf("이동 재개\n");
+        //         current_dir = move_step(path[i], path[i + 1], current_dir);
+        //         break;
+        //     }
+        // }
     }
-
-    turn_left(40);
-    usleep(1105 * 1000);
 
     stop_motor();
-
-    path_len = load_path_from_file("path_B_to_S.txt", path);
-    current_dir = S;
-
-    if (path_len <= 0)
-    {
-        fprintf(stderr, "경로 파일 읽기 실패\n");
-        cleanup();
-        return 1;
-    }
-
-    printf("[차량 이동 시작: B → S]\n");
-
-    for (int i = 0; i < path_len - 1; i++)
-    {
-        while (1)
-        {
-            float distance = get_distance_cm();
-            if (distance < 0)
-            {
-                fprintf(stderr, "거리 측정 실패\n");
-                stop_motor();
-                break;
-            }
-            printf("거리: %.2f cm\n", distance);
-
-            if (distance < 10.0)
-            {
-                printf("거리 10cm 이하 - 차량 정지\n");
-                stop_motor();
-                delay_ms(100);
-            }
-            else
-            {
-                printf("이동 재개\n");
-                current_dir = move_step(path[i], path[i + 1], current_dir);
-                break; // 다음 위치로 진행
-            }
-        }
-    }
-    cleanup();
-
+    
     return 0;
 }
+
+
+// int main()
+// {
+//     setup();
+
+//     Position path[MAX_PATH_LENGTH];
+//     int path_len = load_path_from_file("path_B_to_G.txt", path);
+//     Direction current_dir = E;
+
+//     if (path_len <= 0)
+//     {
+//         fprintf(stderr, "경로 파일 읽기 실패\n");
+//         cleanup();
+//         return 1;
+//     }
+
+//     printf("[차량 이동 시작: S → B]\n");
+
+//     for (int i = 0; i < path_len - 1; i++)
+//     {
+//         while (1)
+//         {
+//             float distance = get_distance_cm();
+//             printf("거리: %.2f cm\n", distance);
+
+//             if (distance < 10.0)
+//             {
+//                 printf("거리 10cm 이하 - 차량 정지\n");
+//                 stop_motor();
+//                 delay_ms(100);
+//             }
+//             else
+//             {
+//                 printf("이동 재개\n");
+//                 current_dir = move_step(path[i], path[i + 1], current_dir);
+//                 break; // 다음 위치로 진행
+//             }
+//         }
+//     }
+
+//     turn_left(40);
+//     usleep(1105 * 1000);
+
+//     stop_motor();
+
+//     path_len = load_path_from_file("path_G_to_B.txt", path);
+//     current_dir = S;
+
+//     if (path_len <= 0)
+//     {
+//         fprintf(stderr, "경로 파일 읽기 실패\n");
+//         cleanup();
+//         return 1;
+//     }
+
+//     printf("[차량 이동 시작: B → S]\n");
+
+//     for (int i = 0; i < path_len - 1; i++)
+//     {
+//         while (1)
+//         {
+//             float distance = get_distance_cm();
+//             if (distance < 0)
+//             {
+//                 fprintf(stderr, "거리 측정 실패\n");
+//                 stop_motor();
+//                 break;
+//             }
+//             printf("거리: %.2f cm\n", distance);
+
+//             if (distance < 10.0)
+//             {
+//                 printf("거리 10cm 이하 - 차량 정지\n");
+//                 stop_motor();
+//                 delay_ms(100);
+//             }
+//             else
+//             {
+//                 printf("이동 재개\n");
+//                 current_dir = move_step(path[i], path[i + 1], current_dir);
+//                 break; // 다음 위치로 진행
+//             }
+//         }
+//     }
+//     cleanup();
+
+//     return 0;
+// }
