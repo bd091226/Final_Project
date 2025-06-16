@@ -333,24 +333,41 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
 
 
 # B차 목적지 찾기
-def B_destination():
+# 수정 필요!!
+def B_destination(차량_ID='B-1001'):
     conn = get_connection()
     try:
         with conn.cursor() as cur:
-            # 포화된 구역 중 가장 빠른 포화 시각의 region_id 조회
+            # 1) 포화된 구역 중 가장 빠른 포화 시각의 region_id 조회
             cur.execute("""
                 SELECT region_id                    -- 구역 ID
-                FROM region                        -- 구역 테이블
-                WHERE is_full    = 1               -- 포화된 상태 필터
-                  AND saturated_at IS NOT NULL     -- 시각이 기록된 것만
-                ORDER BY saturated_at ASC          -- 빠른 순 정렬
-                LIMIT 1                            -- 한 건만
+                FROM region                         -- 구역 테이블
+                WHERE is_full = 1                   -- 포화된 상태 필터
+                  AND saturated_at IS NOT NULL      -- 포화 시각이 기록된 구역만
+                ORDER BY saturated_at ASC           -- 가장 오래된 포화 순 정렬
+                LIMIT 1                             -- 한 건만 조회
             """)
             row = cur.fetchone()
-            return row[0] if row else None
+
+            if not row:
+                print("⚠️ 포화 구역 조회 실패: 등록된 포화 구역이 없습니다.")
+                return None
+            region_id = row[0]
+            print(f"🔍 포화 구역 조회 성공: region_id={region_id}")
+
+            # 2) 운행중 상태로 새 운행 생성
+            cur.execute("""
+                INSERT INTO trip_log (vehicle_id, status, start_time, destination_region_id)   -- trip_log 테이블에 삽입
+                VALUES (%s, '운행중', NOW(), %s)     -- 상태: 운행중, 시작 시각: 현재 시간(NOW)
+            """, (차량_ID, region_id))
+
+            trip_id = cur.lastrowid
+            conn.commit()
+            print(f"✅ 새 운행 생성 성공: trip_id={trip_id}, vehicle_id={차량_ID}, destination_region_id={region_id}")
+            return trip_id
+
     finally:
         conn.close()
-
 
 # B차 구역함에 도착할 때
 # 수정필요!!!!
@@ -471,18 +488,16 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
 # A/B차량 현재 좌표 저장 
 def update_vehicle_coords(cursor, conn, x, y, vehicle_id):
     try:
-        # vehicle 테이블에서 특정 차량의 좌표를 업데이트합니다.
+        # vehicle 테이블 특정 차량 좌표 업데이트
         cursor.execute("""
-            -- vehicle 테이블에서 특정 차량의 coord_x, coord_y 컬럼을 수정
+            -- vehicle 테이블 특정 차량 coord_x, coord_y 수정
             UPDATE vehicle
                SET coord_x    = %s,  -- 현재 X 좌표
                    coord_y    = %s   -- 현재 Y 좌표
              WHERE vehicle_id = %s   -- 업데이트할 차량의 ID
         """, (x, y, vehicle_id))
-        # 변경 내용을 커밋하여 DB에 반영
         conn.commit()
         print(f"✅ 차량 {vehicle_id} 좌표가 ({x}, {y})로 업데이트되었습니다.")
     except Exception as e:
-        # 오류 발생 시 롤백하여 이전 상태로 복구
         conn.rollback()
         print(f"❌ 차량 {vehicle_id} 좌표 업데이트 실패: {e}")
