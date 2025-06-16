@@ -138,16 +138,16 @@ void startpoint()
 
 // 보관함 목적지 도착 시 실행되는 함수
 // MQTT로 "목적지 도착" 메시지 발행
-void dest_arrived(const char *dest) {
-    char msg_buffer[128];
-    snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
+// void dest_arrived(const char *dest) {
+//     char msg_buffer[128];
+//     snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
 
-    // 컨베이어벨트 작동
+//     // 컨베이어벨트 작동
 
-    if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-        printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-    }
-}
+//     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+//         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+//     }
+// }
 
 // A차에 적재된 물품이 없는 경우 다시 출발지점으로 돌아와서 도착을 함을 송신
 void empty()
@@ -180,18 +180,21 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
     {
-        // 빨강 LED(line1) ON → OFF
-        gpiod_line_set_value(line1, 1);
+        // 빨강 ON, 초록 OFF
+        gpiod_line_set_value(line1, 1);  // 빨강 ON
+        gpiod_line_set_value(line3, 0);  // 초록 OFF
         sleep(3);
+
+        // 하양 ON, 빨강 OFF
         gpiod_line_set_value(line1, 0);
         gpiod_line_set_value(line2, 1);
         startpoint();
         start_sent=1;
     }
-    if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
-    {
-        dest_arrived(msg);
-    }
+    // if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
+    // {
+    //     dest_arrived(msg);
+    // }
     if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
     {
         sleep(3);
@@ -284,6 +287,7 @@ int main() {
     }
 
     printf("MQTT connected. Waiting for button press...\n");
+    gpiod_line_set_value(line3, 1);  // 초록 LED ON
 
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
