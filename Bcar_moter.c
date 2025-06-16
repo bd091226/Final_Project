@@ -69,16 +69,17 @@ typedef struct Node {
 static struct gpiod_chip *chip;
 static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
 
+
 // 프로토타입
 static void handle_sigint(int sig);
 // 프로토타입 선언부 수정
-static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
-static void motor_go(int speed, double duration);
-static void motor_stop(void);
+void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
+void motor_go(int speed, double duration);
+void motor_stop(void);
 static void motor_right(int speed, double duration);
 static void motor_left(int speed, double duration);
-static void rotate_one(int *dir, int turn_dir, int speed);
-static void forward_one(Point *pos, int dir, int speed);
+void rotate_one(int *dir, int turn_dir, int speed);
+void forward_one(Point *pos, int dir, int speed);
 
 Point  find_point_by_char(char ch);
 int    heuristic(Point a, Point b);
@@ -128,7 +129,7 @@ static void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
 }
 
-static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec) {
+void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec) {
     int cycle_us = 2000;
     int cycles = (duration_sec * 1e6) / cycle_us;
 
@@ -158,11 +159,11 @@ static void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, in
     gpiod_line_set_value(enb, 0);
 }
 
-static void motor_go(int speed, double duration) {
+void motor_go(int speed, double duration) {
     motor_control(1, 0, 1, 0, speed, speed, duration);
 }
 
-static void motor_stop(void) {
+void motor_stop(void) {
     motor_control(0, 0, 0, 0, 0, 0, 0.1);
 }
 
@@ -174,7 +175,7 @@ static void motor_right(int speed, double duration) {
     motor_control(1, 0, 0, 1, speed, speed, duration);
 }
 
-static void rotate_one(int *dir, int turn_dir, int speed) {
+void rotate_one(int *dir, int turn_dir, int speed) {
     double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * 1.1;
     motor_go(speed, t0);                 // 회전 전 전진 보정
     motor_stop();
@@ -187,7 +188,7 @@ static void rotate_one(int *dir, int turn_dir, int speed) {
     *dir = (*dir + turn_dir + 4) % 4;  // 방향 갱신
 }
 
-static void forward_one(Point *pos, int dir, int speed) {
+void forward_one(Point *pos, int dir, int speed) {
     motor_go(speed, SECONDS_PER_GRID_STEP);                 // 전진
     motor_stop();
     switch (dir) {
@@ -197,6 +198,18 @@ static void forward_one(Point *pos, int dir, int speed) {
         case 3: pos->c--; break;
     }
 }
+
+void cleanup()
+{
+    gpiod_line_release(in1);
+    gpiod_line_release(in2);
+    gpiod_line_release(ena);
+    gpiod_line_release(in3);
+    gpiod_line_release(in4);
+    gpiod_line_release(enb);
+    gpiod_chip_close(chip);
+}
+
 
 // 휴리스틱: 맨해튼 거리
 int heuristic(Point a, Point b) {
@@ -328,7 +341,10 @@ void publish_status(Point *path, int idx, int len) {
 // 그리드 + 방향 출력
 void print_grid_with_dir(Point pos, int dir) {
     char arr[4] = {'^','>','v','<'};
-    printf("   "); for (int c = 0; c < COLS; c++) printf("%d ", c); puts("");
+    printf("   "); 
+    for (int c = 0; c < COLS; c++) 
+        printf("%d ", c); 
+    puts("");
     for (int r = 0; r < ROWS; r++) {
         printf("%d: ", r);
         for (int c = 0; c < COLS; c++) {
@@ -492,15 +508,19 @@ int main(void) {
             }
             if(current_goal=='B')
             {
+                //cleanup();
                 send_arrival_message(client, previous_goal);
+                
             }
             else{
                 send_arrival_message(client, current_goal);
+                
             }
             
             previous_goal = current_goal;
             new_goal_received = 0; // 현재 목적지 처리가 끝났으므로 플래그 리셋
             current_goal = '\0';
+            cleanup();
             
         }
         usleep(100000); // 0.1초 대기

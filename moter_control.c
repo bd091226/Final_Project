@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include "Bcar_moter.h"
 
 #define MAX_PATH_LENGTH 100
 
@@ -13,13 +14,13 @@ typedef struct
     int y;
 } Position;
 
-typedef enum
-{
-    N,
-    E,
-    S,
-    W
-} Direction;
+// typedef enum
+// {
+//     N,
+//     E,
+//     S,
+//     W
+// } Direction;
 
 const int DIR_VECTORS[4][2] = {
     {-1, 0}, // N
@@ -108,7 +109,7 @@ void setup()
     }
 }
 
-void cleanup()
+static void cleanup()
 {
     gpiod_line_release(in1_line);
     gpiod_line_release(in2_line);
@@ -127,50 +128,6 @@ void set_speed(int speedA, int speedB)
     pwm_set_duty(enb_line, speedB);
 }
 
-void forward(int speed)
-{
-    gpiod_line_set_value(in1_line, 1);
-    gpiod_line_set_value(in2_line, 0);
-    gpiod_line_set_value(in3_line, 1);
-    gpiod_line_set_value(in4_line, 0);
-    set_speed(speed, speed);
-}
-
-void backward(int speed)
-{
-    gpiod_line_set_value(in1_line, 0);
-    gpiod_line_set_value(in2_line, 1);
-    gpiod_line_set_value(in3_line, 0);
-    gpiod_line_set_value(in4_line, 1);
-    set_speed(speed, speed);
-}
-
-void turn_left(int speed)
-{
-    gpiod_line_set_value(in1_line, 0);
-    gpiod_line_set_value(in2_line, 1);
-    gpiod_line_set_value(in3_line, 1);
-    gpiod_line_set_value(in4_line, 0);
-    set_speed(speed, speed);
-}
-
-void turn_right(int speed)
-{
-    gpiod_line_set_value(in1_line, 1);
-    gpiod_line_set_value(in2_line, 0);
-    gpiod_line_set_value(in3_line, 0);
-    gpiod_line_set_value(in4_line, 1);
-    set_speed(speed, speed);
-}
-
-void stop_motor()
-{
-    gpiod_line_set_value(in1_line, 0);
-    gpiod_line_set_value(in2_line, 0);
-    gpiod_line_set_value(in3_line, 0);
-    gpiod_line_set_value(in4_line, 0);
-    set_speed(0, 0);
-}
 
 // 현재 시각을 마이크로초 단위로 반환 (초음파 측정용)
 unsigned long get_microseconds()
@@ -247,46 +204,48 @@ Direction move_step(Position curr, Position next, Direction current_dir)
     if (target_idx == -1)
     {
         printf("⚠️ 방향 계산 실패: dx=%d dy=%d\n", dx, dy);
-        stop_motor();
+        motor_stop();
         return current_dir;
     }
 
     int diff = (target_idx - current_dir + 4) % 4;
+    int speed=40;
+
+    // 현재 위치 구조체를 Point 형식으로 변환 (forward_one에서 필요)
+    Point p;
+    p.r = curr.y; // y → row
+    p.c = curr.x; // x → col
 
     switch (diff)
     {
     case 0:
         printf("⬆️ 직진\n");
-        forward(40);
+        forward_one(&p, current_dir, speed);
         break;
     case 1:
         printf("➡️ 우회전\n");
-        turn_right(40);
-        usleep(580 * 1000);
-        forward(40);
+        rotate_one(&current_dir, 1, speed);
+        //forward_one(&p, current_dir, speed);
         break;
     case 2:
         printf("🔄 유턴\n");
-        turn_right(50);
-        usleep(1700 * 1000);
-        turn_right(50);
-        usleep(1700 * 1000);
-        forward(40);
+        rotate_one(&current_dir, 1, speed);
+        rotate_one(&current_dir, -1, speed);
+        forward_one(&p, current_dir, speed);
         break;
     case 3:
         printf("⬅️ 좌회전\n");
-        turn_left(40);
-        usleep(550 * 1000);
-        forward(40);
+        rotate_one(&current_dir, -1, speed);
+        forward_one(&p, current_dir, speed);
         break;
     default:
         printf("⚠️ 예외 상황\n");
-        stop_motor();
+        motor_stop();
         break;
     }
 
     usleep(700 * 1000);
-    stop_motor();
+    motor_stop();
     usleep(300 * 1000);
 
     return (Direction)target_idx;
@@ -303,6 +262,7 @@ int load_path_from_file(const char *filename, Position path[])
     int count = 0;
     while (count < MAX_PATH_LENGTH && fscanf(fp, "%d %d", &path[count].x, &path[count].y) == 2)
     {
+        printf("경로[%d]: (%d, %d)\n", count, path[count].x, path[count].y);
         count++;
     }
     fclose(fp);
@@ -310,6 +270,7 @@ int load_path_from_file(const char *filename, Position path[])
 }
 int run_vehicle_path(const char *goal)
 {
+    setup();
     char path_filename[64];
 
     char goal_str[2] = {goal[0], '\0'}; // goal이 'K'이면 "K"로 바뀜
@@ -355,6 +316,7 @@ int run_vehicle_path(const char *goal)
         //     }
         // }
     }
+
     snprintf(path_filename, sizeof(path_filename), "path_%s_to_B.txt", goal_str);
     printf("\n복귀 경로 파일: %s\n", path_filename);
 
@@ -399,8 +361,8 @@ int run_vehicle_path(const char *goal)
         // }
     }
 
-    stop_motor();
-    
+    motor_stop();
+    cleanup();
     return 0;
 }
 
