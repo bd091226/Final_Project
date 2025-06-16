@@ -41,14 +41,14 @@ gcc main.c -o main -lpaho-mqtt3c -lgpiod
 // led왼쪽 26, led오른쪽 16
 // 모터 18,22,27,23,25,24 라서 무조건 건들이면 안됨
 #define GPIO_CHIP       "/dev/gpiochip0"
-// #define GPIO_LINE1      26  // 빨강 LED
-// #define GPIO_LINE2      19  // 하양 LED
-// #define GPIO_LINE3      16  // 초록 LED
+#define GPIO_LINE1      12  // 빨강 LED
+#define GPIO_LINE2      13  // 하양 LED
+#define GPIO_LINE3      6  // 초록 LED
 
 //이거 서보모터 핀을 바꿔야함!!! A차가 이 핀으로 모터를 사용하고 있거든
 // 핀 바꾸면 밑에 주석도 풀어줘 224줄, 245줄
-// #define MOTOR_IN1       22  // L298N IN1
-// #define MOTOR_IN2       27  // L298N IN2
+#define MOTOR_IN1       19  // L298N IN1
+#define MOTOR_IN2       20  // L298N IN2
 #define BUTTON_PIN      17  // 버튼 입력 핀
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
@@ -138,16 +138,16 @@ void startpoint()
 
 // 보관함 목적지 도착 시 실행되는 함수
 // MQTT로 "목적지 도착" 메시지 발행
-// void dest_arrived(const char *dest) {
-//     char msg_buffer[128];
-//     snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
+void dest_arrived(const char *dest) {
+    char msg_buffer[128];
+    snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
 
-//     // 컨베이어벨트 작동
+    // 컨베이어벨트 작동
 
-//     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-//         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-//     }
-// }
+    if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+        printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+    }
+}
 
 // A차에 적재된 물품이 없는 경우 다시 출발지점으로 돌아와서 도착을 함을 송신
 void empty()
@@ -188,10 +188,10 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         startpoint();
         start_sent=1;
     }
-    // if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
-    // {
-    //     dest_arrived(msg);
-    // }
+    if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
+    {
+        dest_arrived(msg);
+    }
     if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
     {
         sleep(3);
@@ -225,16 +225,16 @@ int main() {
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
     start_python_script();
 
-    // // 2) 모터 제어용 GPIO (IN1, IN2)
-    // line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
-    // line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
-    // // 버튼 GPIO
-    // line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
-    // if (!line_m1 || !line_m2 || !line_btn) {
-    //     perror("gpiod_chip_get_line (motor/button)");
-    //     gpiod_chip_close(chip);
-    //     return EXIT_FAILURE;
-    // }
+    // 2) 모터 제어용 GPIO (IN1, IN2)
+    line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
+    line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
+    // 버튼 GPIO
+    line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
+    if (!line_m1 || !line_m2 || !line_btn) {
+        perror("gpiod_chip_get_line (motor/button)");
+        gpiod_chip_close(chip);
+        return EXIT_FAILURE;
+    }
 
     // 3) LED 제어용 GPIO (빨강, 하양, 초록)
     line1 = gpiod_chip_get_line(chip, GPIO_LINE1);
@@ -246,13 +246,13 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    // // 4) 모터 제어용 GPIO (초기값 OFF)
-    // if (gpiod_line_request_output(line_m1, "motor_ctrl", 0) < 0 ||
-    //     gpiod_line_request_output(line_m2, "motor_ctrl", 0) < 0) {
-    //     perror("gpiod_line_request_output (motor)");
-    //     gpiod_chip_close(chip);
-    //     return EXIT_FAILURE;
-    // }
+    // 4) 모터 제어용 GPIO (초기값 OFF)
+    if (gpiod_line_request_output(line_m1, "motor_ctrl", 0) < 0 ||
+        gpiod_line_request_output(line_m2, "motor_ctrl", 0) < 0) {
+        perror("gpiod_line_request_output (motor)");
+        gpiod_chip_close(chip);
+        return EXIT_FAILURE;
+    }
 
     // 5) LED 제어용 GPIO (초기값 OFF)
     ret = gpiod_line_request_output(line1, "led_ctrl", 0);
