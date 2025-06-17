@@ -131,44 +131,64 @@ def departed_A(conn, cursor, 차량_ID):
     """
     A차가 출발했을 때:
     - '등록됨' 상태의 택배들을 'A차운송중'으로 변경
-    - 차량의 '비운행중' 상태이지만 아직 출발하지 않은 운행(운행_시작 IS NULL)을 출발 처리
+    - 비운행중 상태이지만 아직 출발하지 않은 운행 기록을 출발 처리
+    + 방금 출발 처리된 운행(trip)의 trip_id를 조회해 stdout에 출력 및 반환
     """
     try:
         # 1) 택배 상태 & A차운송 시각 업데이트
         cursor.execute("""
-            UPDATE package                         -- 택배 테이블
-            JOIN delivery_log USING (package_id)   -- delivery_log 테이블 조인
-            JOIN trip_log      USING (trip_id)     -- trip_log 테이블 조인
-            SET package_status           = 'A차운송중',       -- 상태를 A차운송중으로
-                delivery_log.first_transport_time = NOW()        -- A차 첫 운송 시각 기록
-            WHERE trip_log.vehicle_id    = %s                  -- 해당 차량 필터
-              AND package_status         = '등록됨'        -- 등록된 택배만
-              AND trip_log.start_time    IS NULL               -- 아직 출발 전인 운행
-              AND trip_log.status        = '비운행중'           -- 대기 상태인 운행
+            UPDATE package
+            JOIN delivery_log USING (package_id)
+            JOIN trip_log      USING (trip_id)
+            SET package_status                = 'A차운송중',
+                delivery_log.first_transport_time = NOW()
+            WHERE trip_log.vehicle_id    = %s
+              AND package_status         = '등록됨'
+              AND trip_log.start_time    IS NULL
+              AND trip_log.status        = '비운행중'
         """, (차량_ID,))
 
         # 2) 운행 기록 출발 시간 & 상태 변경
         cursor.execute("""
-            UPDATE trip_log                      -- trip_log 테이블
-            SET start_time = NOW(),              -- 출발 시각 기록
-                status     = '운행중'             -- 상태를 운행중으로
-            WHERE vehicle_id = %s                -- 해당 차량 필터
-              AND status     = '비운행중'          -- 대기 상태인 운행
-              AND start_time IS NULL              -- 아직 출발 전 필터
+            UPDATE trip_log
+            SET start_time = NOW(),
+                status     = '운행중'
+            WHERE vehicle_id = %s
+              AND status     = '비운행중'
+              AND start_time IS NULL
         """, (차량_ID,))
 
         # 3) 차량 LED 상태를 노랑으로 변경
         cursor.execute("""
-            UPDATE vehicle                       -- vehicle 테이블
-            SET led_status = '노랑'               -- LED를 노랑으로
-            WHERE vehicle_id = %s               -- 해당 차량 필터
+            UPDATE vehicle
+            SET led_status = '노랑'
+            WHERE vehicle_id = %s
         """, (차량_ID,))
 
         conn.commit()
-        print(f"✅ 차량 {차량_ID} 출발 처리 완료 → 운행 시작 설정, 택배 상태 변경, LED='노랑'")
-    except Exception as e:
-        print(f"❌ departed_A 실패 (차량 {차량_ID}): {e}")
 
+        # 4) 방금 출발 처리된 운행의 trip_id 조회
+        cursor.execute("""
+            SELECT trip_id
+            FROM trip_log
+            WHERE vehicle_id = %s
+              AND status     = '운행중'
+              AND start_time IS NOT NULL
+            ORDER BY start_time DESC
+            LIMIT 1
+        """, (차량_ID,))
+        row = cursor.fetchone()
+        trip_id = row[0] if row else -1
+
+        # 5) trip_id만 stdout에 찍어서 C 코드에서 읽어오도록 함
+        print(trip_id)
+        return trip_id
+
+    except Exception as e:
+        # 에러 메시지는 stderr로 출력해, stdout 파싱에 방해되지 않도록 함
+        import sys
+        print(f"❌ departed_A 실패 (차량 {차량_ID}): {e}", file=sys.stderr)
+        return -1
 
 # A차 목적지 찾기
 def A_destination(운행_ID):
@@ -277,8 +297,13 @@ def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
 
         conn.commit()
         print(f"✅ 차량 {차량_ID} → 구역 {구역_ID} 도착 처리 완료 (적재↓, 보관↑, 상태→투입됨)")
+        
+        print(운행_ID)
+        return 운행_ID
+    
     except Exception as e:
         print(f"❌ zone_arrival_A 실패 (차량 {차량_ID}): {e}")
+        return -1
 
 # A차 운행 완전 종료 (QR 지점으로 도착했을때)
 # 수정 필요!!
