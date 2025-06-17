@@ -65,6 +65,12 @@ pid_t python_pid = -1;   // 파이썬 프로세스 PID 저장
 // Ctrl+C 시그널 핸들러
 void intHandler(int dummy) {
     keepRunning = 0;
+
+     // LED 모두 OFF 추가
+     gpiod_line_set_value(line1, 0);  // 빨강 OFF
+     gpiod_line_set_value(line2, 0);  // 하양 OFF
+     gpiod_line_set_value(line3, 0);  // 초록 OFF
+ 
     // 자식(파이썬) 프로세스가 살아있으면 종료시도
     if (python_pid > 0) {
         kill(python_pid, SIGTERM);
