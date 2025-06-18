@@ -20,8 +20,9 @@ gcc acar.c -o acar -lpaho-mqtt3c -lgpiod
 
 // 전역 변수 정의
 //MQTTClient client;
-struct gpiod_chip *chip;
-struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
+struct gpiod_chip *chip = NULL;;
+struct gpiod_line *in1, *in2, *in3, *in4;
+struct gpiod_line *ena = NULL, *enb = NULL;
 
 volatile int has_new_goal = 0;
 volatile int move_permission = 0;
@@ -46,10 +47,10 @@ int path_idx = 0;
 Point current_pos = {0, 0};
 int dirA = SOUTH;
 // SIGINT 핸들러
-static void handle_sigint(int sig) {
-    gpiod_line_set_value(ena, 0);
-    gpiod_line_set_value(enb, 0);
-    gpiod_chip_close(chip);
+void handle_sigint(int sig) {
+    if (ena) gpiod_line_set_value(ena, 0);
+    if (enb) gpiod_line_set_value(enb, 0);
+    if (chip) gpiod_chip_close(chip);
     exit(0);
 }
 
@@ -91,6 +92,46 @@ void motor_right(int speed, double duration) {
     motor_stop();
 }
 
+void motor_go_precise(struct gpiod_chip *chip, int speed, double total_duration) {
+    double moved_duration = 0.0;
+    const double check_interval = 0.05;  // 장애물 체크 간격 (짧을수록 정밀함)
+
+    // 초기 모터 상태 설정 (한 번만 설정하고 연속 동작)
+    gpiod_line_set_value(in1, 0);
+    gpiod_line_set_value(in2, 1);
+    gpiod_line_set_value(in3, 0);
+    gpiod_line_set_value(in4, 1);
+    gpiod_line_set_value(ena, 1);
+    gpiod_line_set_value(enb, 1);
+
+    while (moved_duration < total_duration) {
+        if (check_obstacle(chip)) {
+            motor_stop();  // 장애물 감지 즉시 정지
+            
+            while (check_obstacle(chip)) {
+                usleep(500000);  // 장애물 체크 주기 (0.5초)
+            }
+
+            printf(" 장애물 제거됨! 이동 재개\n");
+
+            // 장애물이 사라지면 다시 모터 작동 재개
+            gpiod_line_set_value(in1, 0);
+            gpiod_line_set_value(in2, 1);
+            gpiod_line_set_value(in3, 0);
+            gpiod_line_set_value(in4, 1);
+            gpiod_line_set_value(ena, 1);
+            gpiod_line_set_value(enb, 1);
+        }
+
+        // 짧게 대기하며 실제 이동 시간만 누적
+        usleep(check_interval * 1e6);
+        moved_duration += check_interval;
+    }
+
+    motor_stop();  // 목표 시간 도달 시 정지
+    printf("✅ 이동 완료\n");
+}
+
 void rotate_one(int *dir, int turn_dir, int speed) {
     double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * SECONDS_PER_GRID_STEP;
     motor_go(speed, t0);
@@ -104,7 +145,7 @@ void rotate_one(int *dir, int turn_dir, int speed) {
 
 void forward_one(Point *pos, int dir, int speed) {
     printf("➡️ forward_one called at (%d,%d) dir=%d\n", pos->r, pos->c, dir);
-    motor_go(speed, SECONDS_PER_GRID_STEP);
+    motor_go_precise(chip, speed, SECONDS_PER_GRID_STEP);
     switch (dir) {
         case NORTH: pos->r--; break;
         case EAST:  pos->c++; break;
@@ -307,69 +348,69 @@ int publish_message_a(const char* topic, const char* payload)
     return rc;
 }
 
-int msgarrvd_a(void *ctx, char *topic, int len, MQTTClient_message *message) 
-{
-    char buf[message->payloadlen+1];
-    memcpy(buf, message->payload, message->payloadlen);
-    buf[message->payloadlen]='\0';
+// int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) 
+// {
+//     char buf[message->payloadlen+1];
+//     memcpy(buf, message->payload, message->payloadlen);
+//     buf[message->payloadlen]='\0';
     
-    if(strcmp(topic,TOPIC_SUB)==0)
-    {
-        printf("[수신] %s\n", buf);
-        if (!strcmp(buf,"move")) { 
-            is_waiting=0;
-            has_new_goal=1;
-            move_permission=1; 
-            puts(">> move");
-        } 
-        else if (!strcmp(buf,"hold"))
-        { 
-            is_waiting=1; 
-            move_permission=0; 
-            puts(">> hold"); 
-        }
-    }
-    if(strcmp(topic,TOPIC_A_DEST)==0)
-    {
-        char dest_char = buf[0];
-        if (dest_char != '\0') 
-        {
-            if (dest_char == last_goal_char) 
-            {
-                // 항상 has_new_goal을 켜도록!
-                current_goal_char = dest_char;
-                last_goal_char = dest_char;
-                has_new_goal = 1;
-                printf(">> 동일한 목적지 구역입니다: %c\n", dest_char);
-            } 
-            else 
-            {
-                current_goal_char = dest_char;
-                last_goal_char = dest_char;
-                has_new_goal=1;
-                printf(">> 새 목적지 수신: %c\n", current_goal_char);
-            }
-        } 
-        else 
-        {
-            printf(">> 알 수 없는 목적지 코드: %s\n", buf);
-        }
-    }
-    if(strcmp(topic, TOPIC_A_COMPLETE) == 0) 
-    {
-        // 집으로 복귀 명령: 목적지를 'A'로 설정
-        current_goal_char = 'A';
-        last_goal_char = 'A';
-        has_new_goal = 1;
-        move_permission = 1;       // << 이 줄 추가
-        is_waiting = 0;            // << 이 줄도 있으면 더 명확
-        printf(">> A 차량 복귀 명령 수신: %c\n", current_goal_char);
+//     if(strcmp(topic,TOPIC_SUB)==0)
+//     {
+//         printf("[수신] %s\n", buf);
+//         if (!strcmp(buf,"move")) { 
+//             is_waiting=0;
+//             has_new_goal=1;
+//             move_permission=1; 
+//             puts(">> move");
+//         } 
+//         else if (!strcmp(buf,"hold"))
+//         { 
+//             is_waiting=1; 
+//             move_permission=0; 
+//             puts(">> hold"); 
+//         }
+//     }
+//     if(strcmp(topic,TOPIC_A_DEST)==0)
+//     {
+//         char dest_char = buf[0];
+//         if (dest_char != '\0') 
+//         {
+//             if (dest_char == last_goal_char) 
+//             {
+//                 // 항상 has_new_goal을 켜도록!
+//                 current_goal_char = dest_char;
+//                 last_goal_char = dest_char;
+//                 has_new_goal = 1;
+//                 printf(">> 동일한 목적지 구역입니다: %c\n", dest_char);
+//             } 
+//             else 
+//             {
+//                 current_goal_char = dest_char;
+//                 last_goal_char = dest_char;
+//                 has_new_goal=1;
+//                 printf(">> 새 목적지 수신: %c\n", current_goal_char);
+//             }
+//         } 
+//         else 
+//         {
+//             printf(">> 알 수 없는 목적지 코드: %s\n", buf);
+//         }
+//     }
+//     if(strcmp(topic, TOPIC_A_COMPLETE) == 0) 
+//     {
+//         // 집으로 복귀 명령: 목적지를 'A'로 설정
+//         current_goal_char = 'A';
+//         last_goal_char = 'A';
+//         has_new_goal = 1;
+//         move_permission = 1;       // << 이 줄 추가
+//         is_waiting = 0;            // << 이 줄도 있으면 더 명확
+//         printf(">> A 차량 복귀 명령 수신: %c\n", current_goal_char);
 
-    }
-    MQTTClient_freeMessage(&message);
-    MQTTClient_free(topic);
-    return 1;
-}
+//     }
+//     MQTTClient_freeMessage(&message);
+//     MQTTClient_free(topic);
+//     return 1;
+// }
 
 // int main(void) {
 //     signal(SIGINT, handle_sigint);

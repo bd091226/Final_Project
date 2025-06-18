@@ -1,6 +1,6 @@
 /*
 컴파일 :
-gcc main.c -o main -lpaho-mqtt3c -lgpiod
+gcc main.c sensor_A.c acar.c -o main -lpaho-mqtt3c -lgpiod -lm
 실행   :
 ./main
 */
@@ -10,6 +10,7 @@ gcc main.c -o main -lpaho-mqtt3c -lgpiod
 #include <signal.h>
 #include <gpiod.h>
 #include <MQTTClient.h>
+#include "sensor_A.h"
 #include <unistd.h>  // sleep, usleep
 #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid
@@ -54,11 +55,13 @@ gcc main.c -o main -lpaho-mqtt3c -lgpiod
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
 MQTTClient client;                     // 전역 MQTTClient 핸들 (콜백 및 함수들이 공유)
 int count = 1;                         // 버튼 누름 횟수
+int max_count =3;                      // 최대 버튼 횟수
 volatile int flag_startpoint = 0;  // 전역 변수로 선언
 
 // LED(세 가지 색)를 제어하기 위한 GPIO
 struct gpiod_line *line1, *line2, *line3;
-
+extern struct gpiod_chip *chip;
+extern void handle_sigint(int sig);
 
 //volatile sig_atomic_t keepRunning = 1;
 pid_t python_pid = -1;   // 파이썬 프로세스 PID 저장
@@ -72,6 +75,9 @@ void intHandler(int dummy) {
      gpiod_line_set_value(line2, 0);  // 하양 OFF
      gpiod_line_set_value(line3, 0);  // 초록 OFF
  
+     // acar.c의 SIGINT 핸들러 호출
+     handle_sigint(dummy);
+
     // 자식(파이썬) 프로세스가 살아있으면 종료시도
     if (python_pid > 0) {
         kill(python_pid, SIGTERM);
@@ -149,8 +155,6 @@ void startpoint()
 // void dest_arrived(const char *dest) {
 //     char msg_buffer[128];
 //     snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
-
-//     // 컨베이어벨트 작동
 
 //     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
 //         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
@@ -245,7 +249,6 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
 
 int main() {
-    struct gpiod_chip *chip;
     struct gpiod_line *line_m1, *line_m2, *line_btn;
     struct gpiod_line *line1, *line2, *line3;
     int btn_value, last_btn_value;
@@ -253,13 +256,22 @@ int main() {
 
     // SIGINT(Ctrl+C) 핸들러 등록
     signal(SIGINT, intHandler);
-
+    
     // 1) GPIO 칩 오픈
     chip = gpiod_chip_open(GPIO_CHIP);
-    if (!chip) {
-        perror("gpiod_chip_open");
-        return EXIT_FAILURE;
+    ena = gpiod_chip_get_line(chip, ENA_PIN);
+    enb = gpiod_chip_get_line(chip, ENB_PIN);
+
+    if (!chip || !ena || !enb) {
+        perror("GPIO init failed");
+        exit(1);
     }
+
+    gpiod_line_request_output(ena, "ENA", 1);
+    gpiod_line_request_output(enb, "ENB", 1);
+
+    // 초음파 핀 초기화
+    init_ultrasonic_pins(chip);
 
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
     start_python_script();
@@ -267,6 +279,7 @@ int main() {
     // 2) 모터 제어용 GPIO (IN1, IN2)
     line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
     line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
+
     // 버튼 GPIO
     line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
     if (!line_m1 || !line_m2 || !line_btn) {
@@ -310,7 +323,6 @@ int main() {
         return EXIT_FAILURE;
     }
 
-    chip = gpiod_chip_open_by_name(CHIP);
     // ENA/ENB 출력 설정
     ena = gpiod_chip_get_line(chip, ENA_PIN);
     enb = gpiod_chip_get_line(chip, ENB_PIN);
@@ -374,10 +386,14 @@ int main() {
             gpiod_line_set_value(line_m2, 0);
         }
 
-        // 눌림 엣지 감지: last_btn_value가 1이고 현재 btn_value가 0인 경우
-        if (last_btn_value == 1 && btn_value == 0) {
+        if (last_btn_value == 0 && btn_value == 1) {
             send_count();
-            count++;
+
+            if(count < max_count) {
+                count++;
+            } else {
+                count = 1;
+            }
         }
         last_btn_value = btn_value;
         // MQTT 메시지 처리
@@ -460,6 +476,34 @@ int main() {
         const char *target_topic = (current_goal_char == 'A') ? TOPIC_A_COMPLETE_ARRIVED : TOPIC_A_DEST_ARRIVED;
         if (publish_message(target_topic, msg_buffer) == MQTTCLIENT_SUCCESS) 
         {
+            // 컨베이어벨트 작동
+            struct timespec start, now;
+            double duration = 0.4;
+            struct gpiod_line *line_m1, *line_m2;
+
+            // 모터 제어용 GPIO (IN1, IN2)
+            line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
+            line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
+
+            // 모터 ON
+            gpiod_line_set_value(line_m1, 1);
+            gpiod_line_set_value(line_m2, 0);
+
+            clock_gettime(CLOCK_MONOTONIC, &start);
+
+            while (1) {
+                clock_gettime(CLOCK_MONOTONIC, &now);
+                double elapsed = (now.tv_sec - start.tv_sec) + 
+                                (now.tv_nsec - start.tv_nsec) / 1e9;
+
+                if (elapsed >= duration) {
+                    // 1.5초 경과하면 모터 OFF 후 종료
+                    gpiod_line_set_value(line_m1, 0);
+                    gpiod_line_set_value(line_m2, 0);
+                    break;
+                }
+                usleep(10000);       // CPU 점유 최소화
+            }
             printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
         } else {
             printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);

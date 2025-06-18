@@ -74,6 +74,7 @@ void motor_go(int speed, double duration);
 void motor_stop(void);
 void motor_left(int speed, double duration);
 void motor_right(int speed, double duration);
+extern int check_obstacle(struct gpiod_chip *chip);
 void rotate_one(int *dir, int turn_dir, int speed);
 void forward_one(Point *pos, int dir, int speed);
 
@@ -88,6 +89,6 @@ int astar(Point start, Point goal);
 void publish_multi_status(Point *path, int idx, int len);
 void print_grid_with_dir(Point pos, int dir);
 int msgarrvd_a(void *ctx, char *topic, int len, MQTTClient_message *message);
-
+void handle_sigint(int sig);
 
 #endif
