@@ -23,6 +23,7 @@ typedef struct {
     int x, y;
     int path[MAX_PATH][2];
     int path_len;
+    int path_index; // 현재 경로 인덱스
 } VehicleState;
 
 VehicleState vehicleA = {-1, -1, {{-1, -1}}, 0};
@@ -56,6 +57,12 @@ void parse_vehicle_message(char *msg, VehicleState *vehicle) {
             if (ptr) ptr++;
             while (*ptr == ',' || *ptr == ' ') ptr++;
         }
+    }
+    ptr = strstr(msg, "INDEX:");
+    if (ptr) {
+        sscanf(ptr, "INDEX: %d", &vehicle->path_index);
+    } else {
+        vehicle->path_index = 0;  // 기본값 초기화
     }
 }
 
@@ -112,9 +119,12 @@ void evaluate_conflict_and_command() {
         if (A_hold_state) {
             // A가 이전에 HOLD 상태였으면 대기 유지
             printf("⏸️ B 좌표 없음 + A HOLD 상태 유지\n");
-        } else {
+        } 
+        else if (vehicleA.path_len > 0 && vehicleA.path_index < vehicleA.path_len) {
             send_message(CMD_A, "move");
             printf("ℹ️ B 좌표 없음 → A move 명령\n");
+        } else {
+            printf("🚫 A 차량 경로 없음 또는 도착 상태 → move 생략\n");
         }
         return;
     }
