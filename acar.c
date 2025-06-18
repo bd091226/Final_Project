@@ -16,49 +16,21 @@ gcc acar.c -o acar -lpaho-mqtt3c -lgpiod
 #include <sys/select.h>           // select 함수 사용
 #include <ctype.h>
 
-// MQTT 설정
-#define ADDRESS   "tcp://broker.hivemq.com:1883"
-#define CLIENTID  "Vehicle_A"
-#define TOPIC_PUB "vehicle/status_A"
-#define TOPIC_SUB "vehicle/storage/A"
+#include "acar.h"
 
-#define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
-#define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
-#define TOPIC_A_COMPLETE        "storage/A_complete"
+// 전역 변수 정의
+//MQTTClient client;
+struct gpiod_chip *chip;
+struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
 
+volatile int has_new_goal = 0;
+volatile int move_permission = 0;
+volatile int is_waiting = 0;
 
-#define QOS       0
-#define TIMEOUT   10000L
+char current_goal_char = '\0';
+char last_goal_char = '\0';
 
-// 방향 정의
-#define NORTH   0
-#define EAST    1
-#define SOUTH   2
-#define WEST    3
-
-
-// 그리드 설정
-#define ROWS      7
-#define COLS      9
-#define MAX_PATH 100
-
-// 모터 제어 핀 설정
-#define CHIP "gpiochip0"
-#define IN1_PIN 22
-#define IN2_PIN 27
-#define ENA_PIN 18
-#define IN3_PIN 25
-#define IN4_PIN 24
-#define ENB_PIN 23
-
-// 모터 동작 타이밍 (초)
-#define SECONDS_PER_GRID_STEP       1.1
-#define SECONDS_PER_90_DEG_ROTATION 0.9
-#define PRE_ROTATE_FORWARD_CM       8.0f
-
-// 전역 상태
-static MQTTClient client;
-static int grid[ROWS][COLS] = {
+int grid[ROWS][COLS] = {
     {'A',0,0,0,0,0,0,0,0},
     {0,1,1,1,0,1,1,1,0},
     {0,1,'S',1,0,1,'G',1,0},
@@ -68,53 +40,11 @@ static int grid[ROWS][COLS] = {
     {0,0,0,0,0,0,0,0,'B'}
 };
 
-// 점 좌표 구조체
-typedef struct { int r, c; } Point;
-
-// A* 노드 구조체
-typedef struct Node {
-    Point pt;           // 현재 위치
-    int g, h, f;        // g: 시작->현재, h: 휴리스틱, f=g+h
-    struct Node *parent; // 부모 노드 포인터
-} Node;
-
-static struct gpiod_chip *chip;
-static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
-
-// 프로토타입
-static void handle_sigint(int sig);
-static void motor_go(int speed, double duration);
-static void motor_stop(void);
-static void motor_right(int speed, double duration);
-static void motor_left(int speed, double duration);
-static void rotate_one(int *dir, int turn_dir, int speed);
-static void forward_one(Point *pos, int dir, int speed);
-
-Point  find_point_by_char(char ch);
-int    heuristic(Point a, Point b);
-int    is_valid(int r, int c);
-int    points_equal(Point a, Point b);
-Node  *find_lowest_f(Node **open_set, int count);
-int    in_set(Node **set, int count, Point pt);
-void   reconstruct_path(Node *curr);
-int    astar(Point start, Point goal);
-void   publish_multi_status(Point *path, int idx, int len);
-void   print_grid_with_dir(Point pos, int dir);
-int    msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message);
-
-// 전역 변수 추가
-static volatile int has_new_goal = 0;
-static char current_goal_char = '\0';
-static char last_goal_char = '\0';
-
-static Point path[MAX_PATH];            // 계산된 경로 저장
-static int path_len = 0;                // 경로 길이
-static int path_idx = 0;                // 경로 인덱스
-static Point current_pos = {0, 0};      // A 차량 초기 위치
-static int dirA = SOUTH;                // A 차량 초기 방향
-static volatile int move_permission = 0;
-static volatile int is_waiting = 0;
-
+Point path[MAX_PATH];
+int path_len = 0;
+int path_idx = 0;
+Point current_pos = {0, 0};
+int dirA = SOUTH;
 // SIGINT 핸들러
 static void handle_sigint(int sig) {
     gpiod_line_set_value(ena, 0);
@@ -357,7 +287,7 @@ Point find_point_by_char(char ch)
     return (Point){-1,-1};
 }
 
-int publish_message(const char* topic, const char* payload) 
+int publish_message_a(const char* topic, const char* payload) 
 {
     MQTTClient_message pubmsg = MQTTClient_message_initializer;
     pubmsg.payload = (void*)payload;
@@ -377,7 +307,7 @@ int publish_message(const char* topic, const char* payload)
     return rc;
 }
 
-int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) 
+int msgarrvd_a(void *ctx, char *topic, int len, MQTTClient_message *message) 
 {
     char buf[message->payloadlen+1];
     memcpy(buf, message->payload, message->payloadlen);
@@ -441,145 +371,147 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message)
     return 1;
 }
 
-int main(void) {
-    signal(SIGINT, handle_sigint);
+// int main(void) {
+//     signal(SIGINT, handle_sigint);
 
-    chip = gpiod_chip_open_by_name(CHIP);
-    // ENA/ENB 출력 설정
-    ena = gpiod_chip_get_line(chip, ENA_PIN);
-    enb = gpiod_chip_get_line(chip, ENB_PIN);
-    gpiod_line_request_output(ena, "ENA", 1);
-    gpiod_line_request_output(enb, "ENB", 1);
+//     chip = gpiod_chip_open_by_name(CHIP);
+//     // ENA/ENB 출력 설정
+//     ena = gpiod_chip_get_line(chip, ENA_PIN);
+//     enb = gpiod_chip_get_line(chip, ENB_PIN);
+//     gpiod_line_request_output(ena, "ENA", 1);
+//     gpiod_line_request_output(enb, "ENB", 1);
 
-    // 방향 제어 핀
-    in1 = gpiod_chip_get_line(chip, IN1_PIN);
-    in2 = gpiod_chip_get_line(chip, IN2_PIN);
-    in3 = gpiod_chip_get_line(chip, IN3_PIN);
-    in4 = gpiod_chip_get_line(chip, IN4_PIN);
+//     // 방향 제어 핀
+//     in1 = gpiod_chip_get_line(chip, IN1_PIN);
+//     in2 = gpiod_chip_get_line(chip, IN2_PIN);
+//     in3 = gpiod_chip_get_line(chip, IN3_PIN);
+//     in4 = gpiod_chip_get_line(chip, IN4_PIN);
     
-    // 방향제어 핀들을 출력으로 설정
-    if (gpiod_line_request_output(in1, "IN1", 0) < 0 ||
-    gpiod_line_request_output(in2, "IN2", 0) < 0 ||
-    gpiod_line_request_output(in3, "IN3", 0) < 0 ||
-    gpiod_line_request_output(in4, "IN4", 0) < 0) {
-    perror("IN 핀 설정 실패");
-    return 1;
-    }
+//     // 방향제어 핀들을 출력으로 설정
+//     if (gpiod_line_request_output(in1, "IN1", 0) < 0 ||
+//     gpiod_line_request_output(in2, "IN2", 0) < 0 ||
+//     gpiod_line_request_output(in3, "IN3", 0) < 0 ||
+//     gpiod_line_request_output(in4, "IN4", 0) < 0) {
+//     perror("IN 핀 설정 실패");
+//     return 1;
+//     }
 
-    MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
-    MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
+//     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
+//     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+//     MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd_a, NULL);
     
-    if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
-        fprintf(stderr, "MQTT 연결 실패\n");
-        return 1;
-    }
-    MQTTClient_subscribe(client, TOPIC_SUB, QOS);
-    MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
-    MQTTClient_subscribe(client, TOPIC_A_COMPLETE, QOS);
+//     if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
+//         fprintf(stderr, "MQTT 연결 실패\n");
+//         return 1;
+//     }
+//     MQTTClient_subscribe(client, TOPIC_SUB, QOS);
+//     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
+//     MQTTClient_subscribe(client, TOPIC_A_COMPLETE, QOS);
 
-    while (1) 
-    {
-        MQTTClient_yield();  // 항상 메시지 처리 유지
-        usleep(100000);      // CPU 사용률 감소용 대기
+//     while (1) 
+//     {
+//         MQTTClient_yield();  // 항상 메시지 처리 유지
+//         usleep(100000);      // CPU 사용률 감소용 대기
 
-        if (!has_new_goal) continue;
+//         if (!has_new_goal) continue;
 
-        printf("경로 재계산 요청: 현재 위치=(%d,%d), 목적지='%c'\n",
-        current_pos.r, current_pos.c, current_goal_char);
+//         printf("경로 재계산 요청: 현재 위치=(%d,%d), 목적지='%c'\n",
+//         current_pos.r, current_pos.c, current_goal_char);
        
-        Point g = find_point_by_char(current_goal_char);
-        if (current_goal_char == '\0' || !isalpha(current_goal_char)) {
-            printf("목적지 문자가 유효하지 않음: '%c'\n", current_goal_char);
-            has_new_goal = 0;
-            continue;
-        }
-        if (!astar(current_pos, g)) {
-            printf("A* 실패: (%d,%d) → (%d,%d)\n", current_pos.r, current_pos.c, g.r, g.c);
-            path_len = 0;
-            path_idx = 0;
-            memset(path, 0, sizeof(path));  // path[] 배열 완전 초기화
-            has_new_goal = 0;
-            continue;
-        }
+//         Point g = find_point_by_char(current_goal_char);
+//         if (current_goal_char == '\0' || !isalpha(current_goal_char)) {
+//             printf("목적지 문자가 유효하지 않음: '%c'\n", current_goal_char);
+//             has_new_goal = 0;
+//             continue;
+//         }
+//         if (!astar(current_pos, g)) {
+//             printf("A* 실패: (%d,%d) → (%d,%d)\n", current_pos.r, current_pos.c, g.r, g.c);
+//             path_len = 0;
+//             path_idx = 0;
+//             memset(path, 0, sizeof(path));  // path[] 배열 완전 초기화
+//             has_new_goal = 0;
+//             continue;
+//         }
 
-        path_idx = 0;
-        publish_multi_status(path, path_idx, path_len);
-        has_new_goal = 0; // 목표 수신 완료 후 초기화
+//         path_idx = 0;
+//         publish_multi_status(path, path_idx, path_len);
+//         has_new_goal = 0; // 목표 수신 완료 후 초기화
 
-        while (path_idx < path_len) 
-        {
-            while (is_waiting || !move_permission) 
-            {
-                MQTTClient_yield();
-                usleep(200000);
-            }
-            move_permission = 0;
+//         while (path_idx < path_len) 
+//         {
+//             while (is_waiting || !move_permission) 
+//             {
+//                 MQTTClient_yield();
+//                 usleep(200000);
+//             }
+//             move_permission = 0;
 
-            Point nxt = path[path_idx];
-            int td = (nxt.r < current_pos.r ? NORTH :
-                      nxt.r > current_pos.r ? SOUTH :
-                      nxt.c > current_pos.c ? EAST  : WEST);
-            int diff = (td - dirA + 4) % 4;
-            if (diff == 3) diff = -1;
+//             Point nxt = path[path_idx];
+//             int td = (nxt.r < current_pos.r ? NORTH :
+//                       nxt.r > current_pos.r ? SOUTH :
+//                       nxt.c > current_pos.c ? EAST  : WEST);
+//             int diff = (td - dirA + 4) % 4;
+//             if (diff == 3) diff = -1;
 
-            if (diff < 0) {
-                puts("[A] TURN_LEFT");
-                rotate_one(&dirA, -1, 60);  // 속도 70으로 좌회전
-            } else if (diff > 0) {
-                puts("[A] TURN_RIGHT");
-                rotate_one(&dirA, +1, 60);  // 속도 70으로 우회전
-            } else {
-                puts("[A] FORWARD");
-                forward_one(&current_pos, dirA, 60);  // 속도 70으로 전진
-                path_idx++;
-            }
+//             if (diff < 0) {
+//                 puts("[A] TURN_LEFT");
+//                 rotate_one(&dirA, -1, 60);  // 속도 70으로 좌회전
+//             } else if (diff > 0) {
+//                 puts("[A] TURN_RIGHT");
+//                 rotate_one(&dirA, +1, 60);  // 속도 70으로 우회전
+//             } else {
+//                 puts("[A] FORWARD");
+//                 forward_one(&current_pos, dirA, 60);  // 속도 70으로 전진
+//                 path_idx++;
+//             }
 
-            publish_multi_status(path, path_idx, path_len);
-            print_grid_with_dir(current_pos, dirA);
-        }
-        char msg_buffer[10];
-        sprintf(msg_buffer, "%c", current_goal_char);
-        if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) 
-        {
-            printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-        } else {
-            printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
-        }
-        // ★ 추가: 복귀 목적지 A에 도착했음을 출력
-        if (current_goal_char == 'A') {
-            puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
-        }   
+//             publish_multi_status(path, path_idx, path_len);
+//             print_grid_with_dir(current_pos, dirA);
+//         }
+//         char msg_buffer[10];
+//         sprintf(msg_buffer, "%c", current_goal_char);
+//         // 목적지에 따라 다른 토픽으로 전송
+//         const char *target_topic = (current_goal_char == 'A') ? TOPIC_A_COMPLETE_ARRIVED : TOPIC_A_DEST_ARRIVED;
+//         if (publish_message(target_topic, msg_buffer) == MQTTCLIENT_SUCCESS) 
+//         {
+//             printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+//         } else {
+//             printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+//         }
+//         // ★ 추가: 복귀 목적지 A에 도착했음을 출력
+//         // if (current_goal_char == 'A') {
+//         //     puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
+//         // }   
 
-        // 도착 메시지 송신
-        // 목적지 유효성 확인 및 메시지 전송 + 상태 초기화
-        // if (current_goal_char != '\0' && isalpha(current_goal_char)) {
-        //     char msg_buffer[10];
-        //     sprintf(msg_buffer, "%c", current_goal_char);
+//         // 도착 메시지 송신
+//         // 목적지 유효성 확인 및 메시지 전송 + 상태 초기화
+//         // if (current_goal_char != '\0' && isalpha(current_goal_char)) {
+//         //     char msg_buffer[10];
+//         //     sprintf(msg_buffer, "%c", current_goal_char);
 
-        //     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-        //         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-        //     } else {
-        //         printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
-        //     }
-        //     // ★ 추가: 복귀 목적지 A에 도착했음을 출력
-        //     if (current_goal_char == 'A') {
-        //         puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
-        //     }
-        // } else {
-        //     printf("도착 메시지 전송 생략: current_goal_char = '%c'\n", current_goal_char);
-        // }
+//         //     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+//         //         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+//         //     } else {
+//         //         printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+//         //     }
+//         //     // ★ 추가: 복귀 목적지 A에 도착했음을 출력
+//         //     if (current_goal_char == 'A') {
+//         //         puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
+//         //     }
+//         // } else {
+//         //     printf("도착 메시지 전송 생략: current_goal_char = '%c'\n", current_goal_char);
+//         // }
 
-        // 상태 정리는 항상 수행
-        current_goal_char = '\0';
-        last_goal_char = '\0';
-        path_idx = 0;
-        path_len = 0;
-        has_new_goal = 0;
-        memset(path, 0, sizeof(path));
-    }
+//         // 상태 정리는 항상 수행
+//         current_goal_char = '\0';
+//         last_goal_char = '\0';
+//         path_idx = 0;
+//         path_len = 0;
+//         has_new_goal = 0;
+//         memset(path, 0, sizeof(path));
+//     }
 
-    MQTTClient_disconnect(client, TIMEOUT);
-    MQTTClient_destroy(&client);
-    return 0;
-}
+//     MQTTClient_disconnect(client, TIMEOUT);
+//     MQTTClient_destroy(&client);
+//     return 0;
+// }
