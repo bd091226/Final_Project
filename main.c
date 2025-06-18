@@ -28,8 +28,6 @@ gcc main.c -o main -lpaho-mqtt3c -lgpiod
 #define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arrived"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
 #define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
-#define TOPIC_A_HOME        "storage/home"        // 출발지점으로 다시 돌아가라는 명령을 받는 토픽
-#define TOPIC_A_HOME_ARRIVED        "storage/home_arrived"        // 출발지점에 다시 도착을 했다는 것을 송신하기 위한 토픽
 
 
 #define QOS             0       // QoS 레벨
@@ -54,6 +52,7 @@ gcc main.c -o main -lpaho-mqtt3c -lgpiod
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
 MQTTClient client;                     // 전역 MQTTClient 핸들 (콜백 및 함수들이 공유)
 int count = 1;                         // 버튼 누름 횟수
+volatile int flag_startpoint = 0;  // 전역 변수로 선언
 
 // LED(세 가지 색)를 제어하기 위한 GPIO
 struct gpiod_line *line1, *line2, *line3;
@@ -155,17 +154,6 @@ void startpoint()
 //     }
 // }
 
-// A차에 적재된 물품이 없는 경우 다시 출발지점으로 돌아와서 도착을 함을 송신
-void empty()
-{
-    gpiod_line_set_value(line2, 0);
-    char msg[100];
-    snprintf(msg, sizeof(msg), "A차 출발지점 도착");
-
-    if (publish_message(TOPIC_A_HOME_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
-        printf("[송신] %s → %s\n", msg, TOPIC_A_HOME_ARRIVED);
-    }
-}
 // MQTT 연결 끊김 콜백
 void connlost(void *context, char *cause) {
     printf("Connection lost: %s\n", cause);
@@ -186,27 +174,28 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
     if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
     {
-        // 빨강 ON, 초록 OFF
-        gpiod_line_set_value(line1, 1);  // 빨강 ON
-        gpiod_line_set_value(line3, 0);  // 초록 OFF
-        sleep(3);
+        flag_startpoint = 1;  // 블로킹 작업 대신 플래그만 세팅
+        // // 빨강 ON, 초록 OFF
+        // gpiod_line_set_value(line1, 1);  // 빨강 ON
+        // gpiod_line_set_value(line3, 0);  // 초록 OFF
+        // // usleep(500000);
 
-        // 하양 ON, 빨강 OFF
-        gpiod_line_set_value(line1, 0);
-        gpiod_line_set_value(line2, 1);
-        startpoint();
-        start_sent=1;
+        // // 하양 ON, 빨강 OFF
+        // gpiod_line_set_value(line1, 0);
+        // gpiod_line_set_value(line2, 1);
+        // startpoint();
+        // start_sent=1;
     }
     // if(strcmp(topicName, TOPIC_A_DEST) == 0) // 이동해야하는 구역을 알려줌
     // {
     //     dest_arrived(msg);
     // }
-    if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
-    {
-        sleep(3);
-        empty();
+    // if(strcmp(topicName, TOPIC_A_HOME) == 0) // A차에 실린 물건이 없는 경우에 다시 출발지점으로 돌아감
+    // {
+    //     sleep(3);
+    //     empty();
 
-    }
+    // }
 
     // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
     MQTTClient_freeMessage(&message);
@@ -283,6 +272,8 @@ int main() {
     // 7) MQTT 클라이언트 생성 및 연결
     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+    conn_opts.keepAliveInterval = 20;
+    conn_opts.cleansession = 1;
     // 콜백 함수 등록: 연결 끊김, 메시지 수신
     MQTTClient_setCallbacks(client, NULL, connlost, msgarrvd, NULL);
 
@@ -298,7 +289,6 @@ int main() {
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
     MQTTClient_subscribe(client, TOPIC_A_DEST_ARRIVED, QOS);
-    MQTTClient_subscribe(client, TOPIC_A_HOME, QOS);
     
 
     // 9) 버튼의 마지막 상태
@@ -325,6 +315,23 @@ int main() {
             count++;
         }
         last_btn_value = btn_value;
+        // 플래그 확인하여 블로킹 작업 수행
+        if (flag_startpoint) {
+            // LED 빨강 ON, 초록 OFF
+            gpiod_line_set_value(line1, 1);
+            gpiod_line_set_value(line3, 0);
+
+            usleep(3000000);  // 3초 딜레이 (블로킹 문제 없도록 메인 루프 내에서)
+
+            // LED 하양 ON, 빨강 OFF
+            gpiod_line_set_value(line1, 0);
+            gpiod_line_set_value(line2, 1);
+
+            startpoint();  // 필요한 함수 호출
+            start_sent = 1;
+
+            flag_startpoint = 0;  // 처리 완료 후 플래그 초기화
+        }
 
         // 0.1초(100ms) 대기: 디바운싱 처리
         usleep(100000);

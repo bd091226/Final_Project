@@ -24,6 +24,9 @@ gcc acar.c -o acar -lpaho-mqtt3c -lgpiod
 
 #define TOPIC_A_DEST        "storage/dest"   // 목적지 출발 알림용 토픽
 #define TOPIC_A_DEST_ARRIVED     "storage/dest_arrived"     // 목적지 도착 알림용 토픽
+#define TOPIC_A_COMPLETE        "storage/A_complete"
+
+
 #define QOS       0
 #define TIMEOUT   10000L
 
@@ -403,6 +406,10 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message)
         {
             if (dest_char == last_goal_char) 
             {
+                // 항상 has_new_goal을 켜도록!
+                current_goal_char = dest_char;
+                last_goal_char = dest_char;
+                has_new_goal = 1;
                 printf(">> 동일한 목적지 구역입니다: %c\n", dest_char);
             } 
             else 
@@ -417,6 +424,17 @@ int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message)
         {
             printf(">> 알 수 없는 목적지 코드: %s\n", buf);
         }
+    }
+    if(strcmp(topic, TOPIC_A_COMPLETE) == 0) 
+    {
+        // 집으로 복귀 명령: 목적지를 'A'로 설정
+        current_goal_char = 'A';
+        last_goal_char = 'A';
+        has_new_goal = 1;
+        move_permission = 1;       // << 이 줄 추가
+        is_waiting = 0;            // << 이 줄도 있으면 더 명확
+        printf(">> A 차량 복귀 명령 수신: %c\n", current_goal_char);
+
     }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topic);
@@ -458,6 +476,7 @@ int main(void) {
     }
     MQTTClient_subscribe(client, TOPIC_SUB, QOS);
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
+    MQTTClient_subscribe(client, TOPIC_A_COMPLETE, QOS);
 
     while (1) 
     {
@@ -519,21 +538,37 @@ int main(void) {
             publish_multi_status(path, path_idx, path_len);
             print_grid_with_dir(current_pos, dirA);
         }
+        char msg_buffer[10];
+        sprintf(msg_buffer, "%c", current_goal_char);
+        if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) 
+        {
+            printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+        } else {
+            printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+        }
+        // ★ 추가: 복귀 목적지 A에 도착했음을 출력
+        if (current_goal_char == 'A') {
+            puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
+        }   
 
         // 도착 메시지 송신
         // 목적지 유효성 확인 및 메시지 전송 + 상태 초기화
-        if (current_goal_char != '\0' && isalpha(current_goal_char)) {
-            char msg_buffer[10];
-            sprintf(msg_buffer, "%c", current_goal_char);
+        // if (current_goal_char != '\0' && isalpha(current_goal_char)) {
+        //     char msg_buffer[10];
+        //     sprintf(msg_buffer, "%c", current_goal_char);
 
-            if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-                printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-            } else {
-                printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
-            }
-        } else {
-            printf("도착 메시지 전송 생략: current_goal_char = '%c'\n", current_goal_char);
-        }
+        //     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
+        //         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
+        //     } else {
+        //         printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+        //     }
+        //     // ★ 추가: 복귀 목적지 A에 도착했음을 출력
+        //     if (current_goal_char == 'A') {
+        //         puts(">> A 차량이 복귀 지점 'A'에 도착했습니다.");
+        //     }
+        // } else {
+        //     printf("도착 메시지 전송 생략: current_goal_char = '%c'\n", current_goal_char);
+        // }
 
         // 상태 정리는 항상 수행
         current_goal_char = '\0';
