@@ -11,9 +11,9 @@
 #define TOPIC_A_STARTPOINT "storage/startpoint"                 // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
 #define TOPIC_A_STARTPOINT_ARRIVED "storage/startpoint_arrived" // 출발지점 도착 알림용 토픽 ("출발지점 도착")
 #define TOPIC_A_DEST "storage/dest"                             // 목적지 구역 송신 토픽
-#define TOPIC_A_DEST_ARRIVED "storage/dest_arrived"             // 목적지 도착 메시지 수신 토픽
-#define TOPIC_A_HOME "storage/home"    
-#define TOPIC_A_HOME_ARRIVED        "storage/home_arrived"       // A차 집으로 출발 메시지 송신 토픽
+#define TOPIC_A_DEST_ARRIVED "storage/dest_arrived" 
+#define TOPIC_A_COMPLETE "storage/A_complete"           // 목적지 도착 메시지 수신 토픽
+
 #define QOS 1
 #define TIMEOUT 10000L
 
@@ -96,9 +96,9 @@ void publish_zone(const char *구역_ID)
 
     // A차가 이동해야하는  목적지 구역 송신
     int rc = MQTTClient_publishMessage(client, TOPIC_A_DEST, &pubmsg, &token);
-
     if (rc == MQTTCLIENT_SUCCESS)
     {
+        
         printf("[송신] %s → %s\n", TOPIC_A_DEST, 구역_ID);
     }
     else
@@ -107,34 +107,8 @@ void publish_zone(const char *구역_ID)
     }
 }
 
-// A차가 다음 이동해야하는 구역 ID를 MQTT 토픽에 송신
-void publish_home_message()
-{
-    MQTTClient_message pubmsg = MQTTClient_message_initializer; // MQTT 메시지 초기화
-    const char *payload = "출발지점으로 출발";                        // 송신할 문자열
 
-    // pubmsg 구조체에 페이로드 및 속성 설정
-    pubmsg.payload = (char *)payload;
-    pubmsg.payloadlen = (int)strlen(payload);
-    pubmsg.qos = QOS;
-    pubmsg.retained = 0;
 
-    MQTTClient_deliveryToken token; // 송신 완료 토큰
-    
-    // "출발지점으로 출발" 송신
-    int rc = MQTTClient_publishMessage(client, TOPIC_A_HOME, &pubmsg, &token);
-    if (rc == MQTTCLIENT_SUCCESS)
-    {
-        // MQTTClient_waitForCompletion(client, token, TIMEOUT);
-        //  송신 성공 시 콘솔에 출력
-        printf("[송신] %s → %s\n", TOPIC_A_HOME, payload);
-    }
-    else
-    {
-        // 송신 실패 시 에러 출력
-        fprintf(stderr, "MQTT publish failed (rc=%d)\n", rc);
-    }
-}
 
 // 수신받았을 때 호출되는 함수
 int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *message)
@@ -240,19 +214,6 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             fprintf(stderr, "❌ Python에서 trip_id를 읽는 데 실패했습니다.\n");
         }
         pclose(fp);
-        // // 차량_ID를 임의로 지정하여 나중에 변경
-        // char *zone = A_destination("1000");
-
-        // if (zone && *zone)
-        // {
-        //     // 조회된 구역ID가 있을 때만 해당 ID 송신
-        //     publish_zone(zone);
-        // }
-        // else
-        // {
-        //     // 조회된 구역 ID가 없으면
-        //     printf("조회된 구역이 없습니다.\n");
-        // }
     }
     if (strcmp(topicName, TOPIC_A_DEST_ARRIVED) == 0)
     {
@@ -322,7 +283,23 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                 if (load_count == 0)                               // 적재 수량이 0일때
                 {
                     // TOPIC_A_HOME으로 "집으로 출발" 송신
-                    publish_home_message();
+                    MQTTClient_message homeMsg = MQTTClient_message_initializer;
+                    const char *homePayload = "A차 집으로 출발";
+                    homeMsg.payload = (char *)homePayload;
+                    homeMsg.payloadlen = (int)strlen(homePayload);
+                    homeMsg.qos = QOS;
+                    homeMsg.retained = 0;
+                    MQTTClient_deliveryToken homeToken;
+                    int rc_home = MQTTClient_publishMessage(client, TOPIC_A_COMPLETE, &homeMsg, &homeToken);
+                    if (rc_home == MQTTCLIENT_SUCCESS)
+                    {
+                        printf("[송신] %s → %s\n", TOPIC_A_COMPLETE, homePayload);
+                    }
+                    else
+                    {
+                        fprintf(stderr, "MQTT publish failed (rc=%d)\n", rc_home);
+                    }
+                    
                 }
                 else
                 // 현재 적재 수량이 0이 아닐때는 A_destination함수를 호출하여 다음 구역 ID을 받아옴
@@ -338,11 +315,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                     else 
                     {
                         printf(" 다음 목적지 구역 : %s\n", next_zone);
-                        //publish_zone(next_zone);  // NULL 방지 확인 필요
-                        if (*next_zone == '\0') {
-                            fprintf(stderr, "❗ A_destination() 반환 문자열이 비어있습니다\n");
+                        // ✅ 여기에 조건 분기 적용
+                        if (strcmp(next_zone, "") == 0 || strlen(next_zone) == 0) {
+                            printf("✅ 모든 목적지를 방문 완료했습니다. 차량을 홈으로 복귀시킵니다.\n");
                         } else {
-                            publish_zone(next_zone);
+                            publish_zone(next_zone); // 다음 목적지로 이동 명령
                         }
                     }
                     // if (next_zone && *next_zone)
@@ -359,115 +336,6 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
             pclose(fp);
         }
-        // 1) 초음파 센서 실행
-        // float prev_distance = 0;
-        // if (move_distance(chip, 0, &prev_distance))
-        // {
-        //     // 초음파 센서가 true 이면 zone_arrival_A() 호출 (DB에 도착 처리)
-        //     char cmd_zone[512];
-        //     snprintf(cmd_zone, sizeof(cmd_zone),
-        //              "python3 - << 'EOF'\n"
-        //              "from db_access import get_connection, zone_arrival_A\n"
-        //              "conn = get_connection()\n"
-        //              "cur = conn.cursor()\n"
-        //              "zone_arrival_A(conn, cur, '%s', '%s')\n"
-        //              "conn.close()\n"
-        //              "EOF",
-        //              "A-1000", // 차량_ID = 1 // 수정 요청
-        //              "02"
-        //              //zone_id      // 구역_ID ("02"로 고정, 추후 동적으로 변경) // 수정 요청
-        //     );
-
-        //     // system으로 zone_arrival_A발행
-        //     int ret_zone = system(cmd_zone);
-        //     if (ret_zone != 0)
-        //     {
-        //         fprintf(stderr, "❌ zone_arrival_A() 실행 실패 (rc=%d)\n", ret_zone);
-        //     }
-        //     else
-        //     {
-        //         printf("✅ zone_arrival_A() 실행 완료\n");
-        //     }
-
-        //     // 2) Python get_A_count() 호출 → 현재 적재 수량 받아오기
-        //     //    - get_A_count(cursor, 차량_ID='A-1000') 함수를 이용
-        //     //    - 결과가 0이면 "집으로 출발" 메시지를 MQTT로 송신
-        //     char cmd_count[1024];
-        //     snprintf(cmd_count, sizeof(cmd_count),
-        //              "python3 - << 'EOF'\n"
-        //              "from db_access import get_connection, get_A_count\n"
-        //              "conn = get_connection()\n"
-        //              "cur = conn.cursor()\n"
-        //              "count = get_A_count(cur, '%s')\n"
-        //              "print(count)\n"
-        //              "conn.close()\n"
-        //              "EOF",
-        //              "A-1000" // 실제 차량_ID에 맞게 변경하세요 // 수정 요청
-        //     );
-
-        //     // popen()을 사용해 Python 출력(=적재 수량)을 읽기모드
-        //     FILE *fp = popen(cmd_count, "r");
-        //     if (fp == NULL)
-        //     {
-        //         fprintf(stderr, "❌ get_6A_count() popen 호출 실패\n");
-        //     }
-        //     else
-        //     {
-        //         int load_count = -1;                    // 적재 수량 저장 변수
-        //         if (fscanf(fp, "%d", &load_count) == 1) // popen 출력을 정수로 읽음
-        //         {
-        //             printf("🔍 현재 A차 적재 수량: %d\n", load_count); // 현재 적재 수량 출력
-        //             if (load_count == 0)                               // 적재 수량이 0일때
-        //             {
-        //                 // TOPIC_A_HOME으로 "집으로 출발" 송신
-        //                 publish_home_message();
-        //             }
-        //             else
-        //             // 현재 적재 수량이 0이 아닐때는 A_destination함수를 호출하여 다음 구역 ID을 받아옴
-        //             {
-        //                 const char *운행_ID = "1000"; // 수정 요청
-        //                 printf("1\n");
-        //                 char *next_zone = A_destination(운행_ID);
-        //                 printf("2\n");
-        //                 if (next_zone == NULL) {
-        //                     fprintf(stderr, "❌ A_destination() 결과가 NULL입니다\n");
-        //                     // 필요 시 fallback 동작 수행
-        //                 } 
-        //                 else 
-        //                 {
-        //                     printf(" 다음 목적지 구역 : %s\n", next_zone);
-        //                     //publish_zone(next_zone);  // NULL 방지 확인 필요
-        //                     if (*next_zone == '\0') {
-        //                         fprintf(stderr, "❗ A_destination() 반환 문자열이 비어있습니다\n");
-        //                     } else {
-        //                         publish_zone(next_zone);
-        //                     }
-        //                 }
-        //                 // if (next_zone && *next_zone)
-        //                 // {
-        //                 //     printf(" 다음 목적지 구역 : %s\n", next_zone);
-        //                 //     publish_zone(next_zone);
-        //                 // }
-        //             }
-        //         }
-        //         else
-        //         {
-        //             fprintf(stderr, "❌ get_A_count() 출력 파싱 실패\n");
-        //         }
-
-        //         pclose(fp);
-        //     }
-        // }
-        // else
-        // {
-        //     printf("🔕 센서 조건 미충족 (거리 <= 10cm), DB 호출 생략\n");
-        // }
-    }
-
-    if(strcmp(topicName,TOPIC_A_HOME_ARRIVED)==0)
-    {
-        // 처리할 내용을 추가 해야함
-        // 아루코 마커 인식을 해서 오른쪽으로 이동을 할것인지 아니면 직진을 할것인지 동작 구현
         
     }
 
@@ -482,7 +350,15 @@ void connlost(void *context, char *cause)
 {
     // 연결 끊김 정보 출력
     printf("Connection lost: %s\n", cause);
-    connected = 0;
+    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
+    conn_opts.keepAliveInterval = 20;
+    conn_opts.cleansession = 1;
+
+    while (MQTTClient_connect(client, &conn_opts) != MQTTCLIENT_SUCCESS) {
+        printf("재접속 실패, 5초 후 재시도...\n");
+        sleep(5);
+    }
+    printf("재접속 성공\n");
 }
 void delivered(void *context, MQTTClient_deliveryToken dt)
 {
@@ -523,6 +399,7 @@ int main(int argc, char *argv[])
     // MQTTClient_subscribe(client, TOPIC_A_STARTPOINT, QOS);
     MQTTClient_subscribe(client, TOPIC_A_STARTPOINT_ARRIVED, QOS);
     MQTTClient_subscribe(client, TOPIC_A_DEST, QOS);
+    
 
     // 메시지 수신을 계속 대기 (무한 루프)
     while (1)
