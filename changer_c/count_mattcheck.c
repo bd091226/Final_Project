@@ -20,6 +20,8 @@
 MQTTClient client;          // MQTT 클라이언트 전역 변수
 volatile int connected = 0; // 연결 여부 확인
 
+char trip_id_str[16]; // 전역 변수로 trip_id 문자열 선언
+
 void startpoint()
 {
     MQTTClient_message startMsg = MQTTClient_message_initializer;
@@ -198,29 +200,59 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                  "EOF",
                  "A-1000"); // 수정 요청
 
-        // system으로 departed_A발행
-        int ret = system(cmd);
-        if (ret != 0)
+        // popen으로 trip_id 결과 읽기
+        FILE *fp = popen(cmd, "r");
+        if (fp == NULL)
         {
-            fprintf(stderr, "❌ departed_A() 실행 실패 (rc=%d)\n", ret);
+            fprintf(stderr, "❌ popen 실패\n");
+            return 0;
         }
-        else
+        char buffer[128];
+        if (fgets(buffer, sizeof(buffer), fp) != NULL)
         {
-            printf("✅ departed_A() 실행 완료\n");
-        }
-        // 차량_ID를 임의로 지정하여 나중에 변경
-        char *zone = A_destination("1000");
+            // trip_id를 문자열로 받은 후 정수로 변환
+            int trip_id = atoi(buffer);
+            printf("✅ departed_A 실행 후 trip_id: %d\n", trip_id);
 
-        if (zone && *zone)
-        {
-            // 조회된 구역ID가 있을 때만 해당 ID 송신
-            publish_zone(zone);
+            if (trip_id > 0)
+            {
+                // 정수 trip_id를 문자열로 변환하여 zone 조회
+                
+                snprintf(trip_id_str, sizeof(trip_id_str), "%d", trip_id);
+
+                char *zone = A_destination(trip_id_str);
+                if (zone && *zone)
+                {
+                    publish_zone(zone);
+                }
+                else
+                {
+                    printf("조회된 구역이 없습니다.\n");
+                }
+            }
+            else
+            {
+                printf("❌ departed_A()가 유효한 trip_id를 반환하지 않았습니다.\n");
+            }
         }
         else
         {
-            // 조회된 구역 ID가 없으면
-            printf("조회된 구역이 없습니다.\n");
+            fprintf(stderr, "❌ Python에서 trip_id를 읽는 데 실패했습니다.\n");
         }
+        pclose(fp);
+        // // 차량_ID를 임의로 지정하여 나중에 변경
+        // char *zone = A_destination("1000");
+
+        // if (zone && *zone)
+        // {
+        //     // 조회된 구역ID가 있을 때만 해당 ID 송신
+        //     publish_zone(zone);
+        // }
+        // else
+        // {
+        //     // 조회된 구역 ID가 없으면
+        //     printf("조회된 구역이 없습니다.\n");
+        // }
     }
     if (strcmp(topicName, TOPIC_A_DEST_ARRIVED) == 0)
     {
@@ -295,7 +327,9 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
                 else
                 // 현재 적재 수량이 0이 아닐때는 A_destination함수를 호출하여 다음 구역 ID을 받아옴
                 {
-                    const char *운행_ID = "1000"; // 수정 요청
+                    char 운행_ID[16]; // 운행 ID를 저장할 문자열
+                    snprintf(운행_ID, sizeof(trip_id_str), "%s", trip_id_str);
+                    printf("운행 ID: %s\n", 운행_ID); // 운행 ID 출력 (디버깅용)
                     char *next_zone = A_destination(운행_ID);
                     if (next_zone == NULL) {
                         fprintf(stderr, "❌ A_destination() 결과가 NULL입니다\n");
