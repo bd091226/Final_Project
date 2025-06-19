@@ -52,8 +52,8 @@ def button_A(cursor, conn, count, 차량_ID):
                 INSERT INTO trip_log
                   (vehicle_id, status)
                 VALUES
-                  (%s, '비운행중', %s)
-            """, (차량_ID, region_id))
+                  (%s, '비운행중')
+            """, (차량_ID,))
             trip_id = cursor.lastrowid
             print(f"✅ 새 운행 생성 완료: trip_id={trip_id}, vehicle_id={차량_ID}")
         else:
@@ -400,7 +400,7 @@ def B_destination(차량_ID='B-1001'):
                   (vehicle_id, status, start_time)
                 VALUES
                   (%s, '운행중', NOW())
-            """, (차량_ID))
+            """, (차량_ID,))
 
             trip_id = cur.lastrowid
             conn.commit()
@@ -518,6 +518,14 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
                 SET end_time = NOW(),               -- 종료 시각 기록
                     status   = '비운행중'            -- 상태 변경
                 WHERE trip_id = %s                  -- 해당 운행 필터
+            """, (운행_ID,))
+            
+            # 3-2) trip_log 종료 처리: end_time 기록, status 비운행중
+            cursor.execute("""
+                UPDATE trip_log
+                SET end_time = NOW(),
+                    status   = '비운행중'
+                WHERE trip_id = %s
             """, (운행_ID,))
             conn.commit()
             print(f"✅ B차 운행 종료 처리 완료: 운행_ID={운행_ID}")
