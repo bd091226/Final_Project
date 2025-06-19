@@ -145,7 +145,7 @@ def departed_A(conn, cursor, 차량_ID):
     + 방금 출발 처리된 운행(trip)의 trip_id를 조회해 stdout에 출력 및 반환
     """
     try:
-        cur.execute("SET time_zone = '+09:00';")
+        cursor.execute("SET time_zone = '+09:00';")
         # 1) 택배 상태 & A차운송 시각 업데이트
         cursor.execute("""
             UPDATE package
@@ -234,7 +234,7 @@ def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
     - 포화 업데이트시 포화 시각 기록
     """
     try:
-        cur.execute("SET time_zone = '+09:00';")
+        cursor.execute("SET time_zone = '+09:00';")
         # 1) 구역 현재/최대 보관 수량 조회
         cursor.execute("""
             SELECT current_capacity, max_capacity   -- 현재 및 최대 보관 수량
@@ -321,7 +321,7 @@ def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
 # 수정 필요!!
 def end_A(cursor, conn, 차량_ID='A-1000'):
     try:
-        cur.execute("SET time_zone = '+09:00';")
+        cursor.execute("SET time_zone = '+09:00';")
         # 1) trip_log에서 현재 운행중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                         -- 운행 ID
@@ -397,10 +397,10 @@ def B_destination(차량_ID='B-1001'):
             # 2) 운행중 상태로 새 운행 생성
             cur.execute("""
                 INSERT INTO trip_log
-                  (vehicle_id, status, start_time, region_id)
+                  (vehicle_id, status, start_time)
                 VALUES
-                  (%s, '운행중', NOW(), %s)
-            """, (차량_ID, region_id))
+                  (%s, '운행중', NOW())
+            """, (차량_ID))
 
             trip_id = cur.lastrowid
             conn.commit()
@@ -421,7 +421,7 @@ def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
     - package 상태 'B차운송중' 및 second_transport_time 기록
     """
     try:
-        cur.execute("SET time_zone = '+09:00';")
+        cursor.execute("SET time_zone = '+09:00';")
         # 1) region의 current_capacity 조회
         cursor.execute("""
             SELECT current_capacity                 -- 현재 보관 수량
@@ -486,7 +486,7 @@ def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
 # B차 운행 완전 종료 (대기 지점 도착 시)
 def end_B(cursor, conn, 차량_ID='B-1001'):
     try:
-        cur.execute("SET time_zone = '+09:00';")
+        cursor.execute("SET time_zone = '+09:00';")
         # 1) trip_log에서 운행중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                          -- 운행 ID
