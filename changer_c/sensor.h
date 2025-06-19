@@ -1,14 +1,33 @@
 #ifndef SENSOR_H
 #define SENSOR_H
 
-#include <gpiod.h>
+#define SENSOR_COUNT 4
 
-extern struct gpiod_chip *chip;
+#include <stdbool.h>
 
-// 특정 거리 측정 및 조건 판단 (조건 만족하면 1 반환, 아니면 0)
-int move_distance(struct gpiod_chip *chip, int sensor_index, float *last_distance);
-
-// 특정 서보모터를 90도 회전 후 0도로 복귀
-void move_servo(struct gpiod_chip *chip, int servo_index);
-
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+// 기존 함수 선언
+void sensor_init(void);
+void sensor_read_distances(float distances[SENSOR_COUNT]);
+void sensor_activate_servo(int idx);
+void sensor_cycle(void);
+void sensor_cleanup(void);
+
+// 새로 추가: 임계값 기반 모니터링 루프
+//  - dist_thresh: 거리 조건 (cm 이하)
+//  - diff_thresh: 변화량 조건 (cm 이상)
+//  - loop_delay_us: 한 사이클 후 대기 시간 (µs)
+// 이 함수는 내부에서 sensor_read_distances() → 조건 검사 → printf() 를 반복합니다.
+void sensor_monitor_triggers(float dist_thresh,
+                             float diff_thresh,
+                             unsigned int loop_delay_us,
+                             volatile bool *run_flag);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // SENSOR_H
