@@ -27,14 +27,14 @@ struct gpiod_line *enb_line;
 
 struct gpiod_line *trig_line;
 struct gpiod_line *echo_line;
+struct gpiod_line *servo_line;
+
+static int gpio_initialized = 0;
 
 void delay_ms(int ms)
 {
     usleep(ms * 1000);
 }
-
-
-
 void pwm_set_duty(struct gpiod_line *line, int duty_percent)
 {
     if (duty_percent > 0)
@@ -42,7 +42,25 @@ void pwm_set_duty(struct gpiod_line *line, int duty_percent)
     else
         gpiod_line_set_value(line, 0);
 }
-static int gpio_initialized = 0;
+// PWM 생성 함수 (서보모터 제어)
+void generate_pwm(struct gpiod_line *line, int pulse_width_us, int duration_ms) {
+    int cycles = duration_ms / 20;  // 20ms 기준(50Hz)
+    for (int i = 0; i < cycles; i++) {
+        gpiod_line_set_value(line, 1);
+        usleep(pulse_width_us);
+        gpiod_line_set_value(line, 0);
+        usleep(20000 - pulse_width_us);
+    }
+}
+
+void rotate_servo(int pulse_width_us, int duration_ms) {
+    if (!servo_line) {
+        fprintf(stderr, "서보모터 라인이 초기화되지 않았습니다.\n");
+        return;
+    }
+    generate_pwm(servo_line, pulse_width_us, duration_ms);
+}
+
 void setup()
 {
     if (gpio_initialized) {
@@ -66,9 +84,24 @@ void setup()
     // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
     // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
 
+    servo_line = gpiod_chip_get_line(chip, SERVO_PIN);
+    if (!servo_line) {
+        perror("servo pin line request failed");
+        gpiod_chip_close(chip);
+        chip = NULL;
+        return;
+    }
+    if (gpiod_line_request_output(servo_line, "servo", 0) < 0) {
+        perror("servo line request output failed");
+        gpiod_chip_close(chip);
+        chip = NULL;
+        return;
+    }
+
     if (!in1_line || !in2_line || !ena_line || !in3_line || !in4_line || !enb_line)
     {
-        fprintf(stderr, "GPIO line request failed\n");
+        fprintf(stderr, "GPIO line not found\n");
+        gpiod_chip_close(chip);
         exit(1);
     }
     if (gpiod_line_request_output(in1_line, "IN1", 0) < 0) {
@@ -94,22 +127,27 @@ void setup()
     if (gpiod_line_request_output(enb_line, "ENB", 0) < 0) {
         perror("GPIO ENB 요청 실패");
         exit(EXIT_FAILURE);
-    }   
+    }
 
     gpio_initialized = 1;  // 초기화 완료 표시
 }
 
 void cleanup()
 {
+    if (!gpio_initialized) return;
     gpiod_line_release(in1_line);
     gpiod_line_release(in2_line);
     gpiod_line_release(ena_line);
     gpiod_line_release(in3_line);
     gpiod_line_release(in4_line);
     gpiod_line_release(enb_line);
+    gpiod_line_release(servo_line);
     // gpiod_line_release(trig_line);
     // gpiod_line_release(echo_line);
     gpiod_chip_close(chip);
+    servo_line = NULL;
+    chip = NULL;
+
     gpio_initialized = 0;
 }
 
@@ -283,12 +321,17 @@ int complete_message(const char *topic, const char *message)
 }
 int run_vehicle_path(const char *goal)
 {
-    // GPIO가 이미 초기화된 상태인지 확인
     if (!gpio_initialized) {
-        setup();
-    } else {
-        printf("GPIO 이미 초기화 상태, setup() 호출 생략\n");
+        fprintf(stderr, "GPIO가 초기화되지 않았습니다. setup()을 먼저 호출하세요.\n");
+        return 1;
     }
+
+    // // GPIO가 이미 초기화된 상태인지 확인
+    // if (!gpio_initialized) {
+    //     setup();
+    // } else {
+    //     printf("GPIO 이미 초기화 상태, setup() 호출 생략\n");
+    // }
     char path_filename[64];
 
     char goal_str[2] = {goal[0], '\0'}; // goal이 'K'이면 "K"로 바뀜
@@ -334,6 +377,30 @@ int run_vehicle_path(const char *goal)
         //     }
         // }
     }
+
+    chip = gpiod_chip_open_by_name(CHIP);
+    if (!chip) {
+        perror("gpiod_chip_open_by_name");
+        return 1;
+    }
+
+    servo_line = gpiod_chip_get_line(chip, SERVO_PIN);
+    if (!servo_line) {
+        perror("gpiod_chip_get_line");
+        gpiod_chip_close(chip);
+        return 1;
+    }
+
+   // 복귀 경로 시작 전 서보모터 0도 → 90도 → 0도 회전
+    printf("서보모터 0도 → 90도 → 0도 회전 시작\n");
+    rotate_servo(MIN_PULSE_WIDTH, 1000);
+    usleep(1000000);
+    rotate_servo(MID_PULSE_WIDTH, 2000);
+    usleep(2000000);
+    rotate_servo(MIN_PULSE_WIDTH, 1000);
+    usleep(1000000);
+    printf("서보모터 회전 완료\n");
+
 
     snprintf(path_filename, sizeof(path_filename), "path_%s_to_B.txt", goal_str);
     printf("\n복귀 경로 파일: %s\n", path_filename);

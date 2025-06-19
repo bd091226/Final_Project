@@ -15,6 +15,8 @@
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived"
 #define TOPIC_B_POINT_ARRIVED "storage/b_point_arrived"
 #define TOPIC_B_POINT        "storage/b_point"
+#define TOPIC_B_COMPLETED "vehicle/B_completed"
+
 // #define QOS 1
 // #define TIMEOUT 10000L
 
@@ -107,6 +109,13 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         current_goal = msg[0];           // 수신한 목적지 저장 (ex. 'K')
         new_goal_received = 1;           // 목적지 수신 플래그 설정
     }
+    if(strcmp(topicName, TOPIC_B_DEST_ARRIVED) == 0) 
+    {
+        printf("도착지점 도착: %s\n", msg);
+        send_arrival(msg);
+    }
+    
+    
 
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -125,6 +134,8 @@ void handle_sigint(int sig) {
 }
 int main(void) {
     signal(SIGINT, handle_sigint);
+
+    setup();  // GPIO 초기화
 
     // GPIO 초기화
     chip = gpiod_chip_open_by_name(CHIP);
