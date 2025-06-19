@@ -49,8 +49,8 @@ def button_A(cursor, conn, count, 차량_ID):
         if count == 1:
             # destination_1 에 첫 구역(region_id) 바로 넣기
             cursor.execute("""
-                INSERT INTO trip_log_A
-                  (vehicle_id, status, destination_1)
+                INSERT INTO trip_log
+                  (vehicle_id, status)
                 VALUES
                   (%s, '비운행중', %s)
             """, (차량_ID, region_id))
@@ -60,7 +60,7 @@ def button_A(cursor, conn, count, 차량_ID):
             # count > 1 → 기존 '비운행중' 운행 기록 조회
             cursor.execute("""
                 SELECT trip_id                              -- trip_id 조회
-                FROM trip_log_A                               -- trip_log 테이블
+                FROM trip_log                               -- trip_log 테이블
                 WHERE vehicle_id = %s                       -- 차량 필터
                   AND status     = '비운행중'                -- 비운행중 상태만
                   AND start_time IS NULL                    -- 아직 출발 전인 운행만
@@ -74,13 +74,13 @@ def button_A(cursor, conn, count, 차량_ID):
             trip_id = row[0]
             print(f"🔄 기존 운행_ID 사용: {trip_id}")
 
-            # count > 1 일 때 업데이트
-            cursor.execute(f"""
-                UPDATE trip_log_A
-                    SET destination_{count} = %s
-                    WHERE trip_id = %s
-            """, (region_id, trip_id))
-            print(f"✅ trip_log_A.destination_{count} 업데이트: {region_id}")
+            # # count > 1 일 때 업데이트
+            # cursor.execute(f"""
+            #     UPDATE trip_log
+            #         SET destination_{count} = %s
+            #         WHERE trip_id = %s
+            # """, (region_id, trip_id))
+            # print(f"✅ trip_log.destination_{count} 업데이트: {region_id}")
             
         # 3) delivery_log 테이블에 매핑 삽입
         cursor.execute(
@@ -150,18 +150,18 @@ def departed_A(conn, cursor, 차량_ID):
         cursor.execute("""
             UPDATE package
             JOIN delivery_log USING (package_id)
-            JOIN trip_log_A      USING (trip_id)
+            JOIN trip_log      USING (trip_id)
             SET package_status                = 'A차운송중',
                 delivery_log.first_transport_time = NOW()
-            WHERE trip_log_A.vehicle_id    = %s
+            WHERE trip_log.vehicle_id    = %s
               AND package_status         = '등록됨'
-              AND trip_log_A.start_time    IS NULL
-              AND trip_log_A.status        = '비운행중'
+              AND trip_log.start_time    IS NULL
+              AND trip_log.status        = '비운행중'
         """, (차량_ID,))
 
         # 2) 운행 기록 출발 시간 & 상태 변경
         cursor.execute("""
-            UPDATE trip_log_A
+            UPDATE trip_log
             SET start_time = NOW(),
                 status     = '운행중'
             WHERE vehicle_id = %s
@@ -181,7 +181,7 @@ def departed_A(conn, cursor, 차량_ID):
         # 4) 방금 출발 처리된 운행의 trip_id 조회
         cursor.execute("""
             SELECT trip_id
-            FROM trip_log_A
+            FROM trip_log
             WHERE vehicle_id = %s
               AND status     = '운행중'
               AND start_time IS NOT NULL
@@ -263,7 +263,7 @@ def zone_arrival_A(conn, cursor, 차량_ID, 구역_ID):
         # 4) 현재 진행 중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                          -- 운행 ID 조회
-            FROM trip_log_A                          -- trip_log 테이블
+            FROM trip_log                          -- trip_log 테이블
             WHERE vehicle_id = %s AND status = '운행중'  -- 운행 중인 기록
             ORDER BY trip_id DESC                  -- 최신 건
             LIMIT 1                                -- 한 건만
@@ -325,7 +325,7 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
         # 1) trip_log에서 현재 운행중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                         -- 운행 ID
-            FROM trip_log_A                        -- 운행 기록 테이블
+            FROM trip_log                        -- 운행 기록 테이블
             WHERE vehicle_id = %s                 -- 해당 차량 필터
               AND status     = '운행중'            -- 운행 중인 상태
             ORDER BY trip_id DESC                  -- 최신 순 정렬
@@ -349,7 +349,7 @@ def end_A(cursor, conn, 차량_ID='A-1000'):
         if 남은_건수 == 0:
             # 3) trip_log 종료 처리: end_time 기록, status를 '비운행중'으로
             cursor.execute("""
-                UPDATE trip_log_A
+                UPDATE trip_log
                 SET end_time = NOW(),               -- 종료 시각 기록
                     status   = '비운행중'           -- 비운행중 상태로 변경
                 WHERE trip_id = %s                  -- 해당 운행 필터
@@ -396,7 +396,7 @@ def B_destination(차량_ID='B-1001'):
 
             # 2) 운행중 상태로 새 운행 생성
             cur.execute("""
-                INSERT INTO trip_log_B
+                INSERT INTO trip_log
                   (vehicle_id, status, start_time, region_id)
                 VALUES
                   (%s, '운행중', NOW(), %s)
@@ -404,7 +404,7 @@ def B_destination(차량_ID='B-1001'):
 
             trip_id = cur.lastrowid
             conn.commit()
-            print(f"✅ 새 운행 생성 성공: trip_id={trip_id}, vehicle_id={차량_ID}, destination_region_id={region_id}")
+            print(f"✅ 새 운행 생성 성공: trip_id={trip_id}, vehicle_id={차량_ID}")
             return trip_id
 
     finally:
@@ -417,7 +417,7 @@ def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
     - region의 현재 보관 수량 조회
     - vehicle current_load 업데이트
     - region current_capacity 및 포화 상태 초기화
-    - trip_log_B에서 운행중인 trip_id 조회
+    - trip_log에서 운행중인 trip_id 조회
     - package 상태 'B차운송중' 및 second_transport_time 기록
     """
     try:
@@ -450,10 +450,10 @@ def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
             WHERE region_id = %s                   -- 해당 구역 필터
         """, (구역_ID,))
 
-        # 4) trip_log_B에서 운행중인 trip_id 조회
+        # 4) trip_log에서 운행중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                          -- 운행 ID 조회
-            FROM trip_log_B                         -- trip_log_B 테이블
+            FROM trip_log                          -- trip_log 테이블
             WHERE vehicle_id = %s                  -- 차량 필터
               AND status     = '운행중'             -- 운행중 상태 필터
             ORDER BY trip_id DESC                   -- 최신 순 정렬
@@ -487,10 +487,10 @@ def zone_arrival_B(conn, cursor, 구역_ID, 차량_ID):
 def end_B(cursor, conn, 차량_ID='B-1001'):
     try:
         cur.execute("SET time_zone = '+09:00';")
-        # 1) trip_log_B에서 운행중인 trip_id 조회
+        # 1) trip_log에서 운행중인 trip_id 조회
         cursor.execute("""
             SELECT trip_id                          -- 운행 ID
-            FROM trip_log_B                         -- trip_log_B 테이블
+            FROM trip_log                          -- trip_log 테이블
             WHERE vehicle_id = %s                  -- 차량 필터
               AND status     = '운행중'             -- 운행중 상태 필터
             ORDER BY trip_id DESC                   -- 최신 순 정렬
@@ -512,9 +512,9 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
         남은_건수 = cursor.fetchone()[0]
 
         if 남은_건수 == 0:
-            # 3) trip_log_B 종료 처리: end_time 기록, status 비운행중
+            # 3) trip_log 종료 처리: end_time 기록, status 비운행중
             cursor.execute("""
-                UPDATE trip_log_B
+                UPDATE trip_log
                 SET end_time = NOW(),               -- 종료 시각 기록
                     status   = '비운행중'            -- 상태 변경
                 WHERE trip_id = %s                  -- 해당 운행 필터
