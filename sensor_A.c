@@ -118,24 +118,3 @@ bool check_obstacle(struct gpiod_chip *chip)
     
     return false; // 장애물이 없으면 false 반환
 }
-
-// int main()
-// {
-//     chip = gpiod_chip_open_by_name(CHIP_NAME);
-//     if (!chip)
-//     {
-//         fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
-//         return 1;
-//     }
-
-//     printf("▶️ 초음파 센서 시작\n");
-
-//     while (1)
-//     {
-//         check_obstacle(chip);
-//         usleep(500000); // 0.5초 간격 반복
-//     }
-
-//     gpiod_chip_close(chip);
-//     return 0;
-// }
