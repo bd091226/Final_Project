@@ -1,19 +1,24 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
 #include <MQTTClient.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/select.h>
+#include "moter_control.h"
+#include "Bcar_moter.h"
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
-#define CLIENTID "RaspberryPi_Bcar"
+// #define CLIENTID "RaspberryPi_Bcar"
 #define TOPIC_B_DEST "storage/b_dest"
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived"
 #define TOPIC_B_POINT_ARRIVED "storage/b_point_arrived"
 #define TOPIC_B_POINT        "storage/b_point"
-#define QOS 1
-#define TIMEOUT 10000L
+// #define QOS 1
+// #define TIMEOUT 10000L
 
-MQTTClient client;
+// MQTTClient client;
 
 // B차 출발지점 도착
 void starthome()
@@ -91,6 +96,17 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         sleep(2); // 도착 후 딜레이
         starthome();
     }
+    if (!strcmp(msg, "move")) 
+    {
+        is_waiting = 0; 
+        move_permission = 1; 
+        puts(">> move");
+    }
+    if(strcmp(topicName, TOPIC_B_DEST) == 0) 
+    {
+        current_goal = msg[0];           // 수신한 목적지 저장 (ex. 'K')
+        new_goal_received = 1;           // 목적지 수신 플래그 설정
+    }
 
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -102,32 +118,112 @@ void connection_lost(void *context, char *cause)
     printf("[경고] MQTT 연결 끊김: %s\n", cause);
 }
 
-int main()
-{
-    MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
-    MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    MQTTClient_setCallbacks(client, NULL, connection_lost, message_arrived, NULL);
+void handle_sigint(int sig) {
+    printf("\n🛑 SIGINT 감지, 프로그램 종료 중...\n");
+    cleanup();  // 리소스 해제 함수
+    exit(0);
+}
+int main(void) {
+    signal(SIGINT, handle_sigint);
 
-    if (MQTTClient_connect(client, &conn_opts) != MQTTCLIENT_SUCCESS)
-    {
-        fprintf(stderr, "MQTT 브로커 접속 실패\n");
-        return -1;
+    // GPIO 초기화
+    chip = gpiod_chip_open_by_name(CHIP);
+    in1_line = gpiod_chip_get_line(chip, IN1_PIN);
+    in2_line = gpiod_chip_get_line(chip, IN2_PIN);
+    ena_line = gpiod_chip_get_line(chip, ENA_PIN);
+    in3_line = gpiod_chip_get_line(chip, IN3_PIN);
+    in4_line = gpiod_chip_get_line(chip, IN4_PIN);
+    enb_line = gpiod_chip_get_line(chip, ENB_PIN);
+
+    gpiod_line_request_output(in1_line, "IN1", 0);
+    gpiod_line_request_output(in2_line, "IN2", 0);
+    gpiod_line_request_output(ena_line, "ENA", 0);
+    gpiod_line_request_output(in3_line, "IN3", 0);
+    gpiod_line_request_output(in4_line, "IN4", 0);
+    gpiod_line_request_output(enb_line, "ENB", 0);
+
+    // MQTT 설정
+    MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
+    MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+    MQTTClient_setCallbacks(client, NULL, connection_lost, message_arrived, NULL);  // callback 설정
+
+    if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
+        fprintf(stderr, "❌ MQTT 연결 실패\n");
+        return 1;
     }
 
+    // 구독 시작
+    MQTTClient_subscribe(client, CMD_B, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_B_POINT, QOS);
-    
-    printf("[B차] MQTT 브로커 연결 성공, 구독 시작: %s\n", TOPIC_B_DEST);
-    printf("[B차] MQTT 브로커 연결 성공, 구독 시작: %s\n", TOPIC_B_POINT);
 
+    printf("[B차] MQTT 연결 성공, 구독 시작\n");
 
-    while (1)
-    {
-        MQTTClient_yield();
-        sleep(1);
+    // ===== 메인 동작 루프 =====
+    while (1) {
+        MQTTClient_yield(); // MQTT 콜백 처리
+
+        if (new_goal_received && current_goal != '\0') {
+            printf("➡️  A* 경로 탐색 시작: 목적지 '%c'\n", current_goal);
+            Point goal = find_point_by_char(current_goal);
+
+            if (!astar(current_pos, goal)) {
+                printf("❌ 경로 탐색 실패: %c\n", current_goal);
+                new_goal_received = 0;
+                continue;
+            }
+
+            path_idx = 0;
+            publish_status(path, path_idx, path_len);
+
+            while (path_idx < path_len) {
+                while (is_waiting || !move_permission) {
+                    MQTTClient_yield();
+                    usleep(200000);
+                }
+                move_permission = 0;
+
+                Point nxt = path[path_idx];
+                int td = (nxt.r < current_pos.r ? N :
+                          nxt.r > current_pos.r ? S :
+                          nxt.c > current_pos.c ? E  : W);
+                int diff = (td - dirB + 4) % 4;
+                if (diff == 3) diff = -1;
+
+                if (diff < 0) {
+                    puts("[B] TURN_LEFT");
+                    rotate_one(&dirB, -1, 60);
+                } else if (diff > 0) {
+                    puts("[B] TURN_RIGHT");
+                    rotate_one(&dirB, +1, 60);
+                } else {
+                    puts("[B] FORWARD");
+                    forward_one(&current_pos, dirB, 60);
+                    path_idx++;
+                }
+
+                publish_status(path, path_idx, path_len);
+                print_grid_with_dir(current_pos, dirB);
+            }
+
+            if (current_goal == 'B') {
+                send_arrival_message(client, previous_goal);
+            } else {
+                send_arrival_message(client, current_goal);
+            }
+
+            previous_goal = current_goal;
+            new_goal_received = 0;
+            current_goal = '\0';
+        }
+
+        usleep(100000); // 0.1초
     }
 
-    MQTTClient_disconnect(client, 10000);
+    cleanup();
+    MQTTClient_disconnect(client, TIMEOUT);
     MQTTClient_destroy(&client);
+
     return 0;
 }

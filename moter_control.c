@@ -4,23 +4,9 @@
 #include <unistd.h>
 #include <time.h>
 #include <sys/time.h>
+#include <MQTTClient.h>
+#include "moter_control.h"
 #include "Bcar_moter.h"
-
-#define MAX_PATH_LENGTH 100
-
-typedef struct
-{
-    int x;
-    int y;
-} Position;
-
-// typedef enum
-// {
-//     N,
-//     E,
-//     S,
-//     W
-// } Direction;
 
 const int DIR_VECTORS[4][2] = {
     {-1, 0}, // N
@@ -29,17 +15,7 @@ const int DIR_VECTORS[4][2] = {
     {0, -1}  // W
 };
 
-// BCM GPIO 번호 정의 (libgpiod는 gpiochip0 기준 라인번호 = BCM 번호)
-#define IN1_PIN 17
-#define IN2_PIN 18
-#define ENA_PIN 12
-#define IN3_PIN 22
-#define IN4_PIN 23
-#define ENB_PIN 13
 
-// 초음파 센서 핀 (예시, 필요시 변경)
-#define TRIG_PIN 6
-#define ECHO_PIN 5
 
 struct gpiod_chip *chip;
 struct gpiod_line *in1_line;
@@ -57,6 +33,8 @@ void delay_ms(int ms)
     usleep(ms * 1000);
 }
 
+
+
 void pwm_set_duty(struct gpiod_line *line, int duty_percent)
 {
     if (duty_percent > 0)
@@ -64,10 +42,14 @@ void pwm_set_duty(struct gpiod_line *line, int duty_percent)
     else
         gpiod_line_set_value(line, 0);
 }
-
+static int gpio_initialized = 0;
 void setup()
 {
-    chip = gpiod_chip_open_by_name("gpiochip0");
+    if (gpio_initialized) {
+        // 이미 초기화 됐으니 중복 요청 방지
+        return;
+    }
+    chip = gpiod_chip_open_by_name(CHIP);
     if (!chip)
     {
         perror("gpiochip0 open failed");
@@ -81,35 +63,43 @@ void setup()
     in4_line = gpiod_chip_get_line(chip, IN4_PIN);
     enb_line = gpiod_chip_get_line(chip, ENB_PIN);
 
-    trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
-    echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
+    // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
+    // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
 
-    if (!in1_line || !in2_line || !ena_line || !in3_line || !in4_line || !enb_line || !trig_line || !echo_line)
+    if (!in1_line || !in2_line || !ena_line || !in3_line || !in4_line || !enb_line)
     {
         fprintf(stderr, "GPIO line request failed\n");
         exit(1);
     }
-
-    if (gpiod_line_request_output(in1_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(in2_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(ena_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(in3_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(in4_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(enb_line, "motor_control", 0) < 0 ||
-        gpiod_line_request_output(trig_line, "ultrasonic_trig", 0) < 0)
-    {
-        fprintf(stderr, "GPIO output request failed\n");
-        exit(1);
+    if (gpiod_line_request_output(in1_line, "IN1", 0) < 0) {
+        perror("GPIO IN1 요청 실패");
+        exit(EXIT_FAILURE);
     }
-
-    if (gpiod_line_request_input(echo_line, "ultrasonic_echo") < 0)
-    {
-        fprintf(stderr, "GPIO input request failed\n");
-        exit(1);
+    if (gpiod_line_request_output(in2_line, "IN2", 0) < 0) {
+        perror("GPIO IN2 요청 실패");
+        exit(EXIT_FAILURE);
     }
+    if (gpiod_line_request_output(ena_line, "ENA", 0) < 0) {
+        perror("GPIO ENA 요청 실패");
+        exit(EXIT_FAILURE);
+    }
+    if (gpiod_line_request_output(in3_line, "IN3", 0) < 0) {
+        perror("GPIO IN3 요청 실패");      
+        exit(EXIT_FAILURE);
+    }
+    if (gpiod_line_request_output(in4_line, "IN4", 0) < 0) {
+        perror("GPIO IN4 요청 실패");
+        exit(EXIT_FAILURE);
+    }
+    if (gpiod_line_request_output(enb_line, "ENB", 0) < 0) {
+        perror("GPIO ENB 요청 실패");
+        exit(EXIT_FAILURE);
+    }   
+
+    gpio_initialized = 1;  // 초기화 완료 표시
 }
 
-static void cleanup()
+void cleanup()
 {
     gpiod_line_release(in1_line);
     gpiod_line_release(in2_line);
@@ -117,9 +107,10 @@ static void cleanup()
     gpiod_line_release(in3_line);
     gpiod_line_release(in4_line);
     gpiod_line_release(enb_line);
-    gpiod_line_release(trig_line);
-    gpiod_line_release(echo_line);
+    // gpiod_line_release(trig_line);
+    // gpiod_line_release(echo_line);
     gpiod_chip_close(chip);
+    gpio_initialized = 0;
 }
 
 void set_speed(int speedA, int speedB)
@@ -268,9 +259,36 @@ int load_path_from_file(const char *filename, Position path[])
     fclose(fp);
     return count;
 }
+
+int complete_message(const char *topic, const char *message)
+{
+    char payload[64];
+    snprintf(payload, sizeof(payload), "%s", message);
+
+    MQTTClient_message pubmsg = MQTTClient_message_initializer;
+    pubmsg.payload = payload;
+    pubmsg.payloadlen = (int)strlen(payload);
+    pubmsg.qos = QOS;
+    pubmsg.retained = 0;
+
+    MQTTClient_deliveryToken token;
+    int rc = MQTTClient_publishMessage(client, topic, &pubmsg, &token);
+    if (rc != MQTTCLIENT_SUCCESS)
+    {
+        fprintf(stderr, "[오류] MQTT 메시지 발행 실패 (rc=%d)\n", rc);
+        return 1;
+    }
+
+    printf("[송신] %s → %s\n", payload, topic);
+}
 int run_vehicle_path(const char *goal)
 {
-    setup();
+    // GPIO가 이미 초기화된 상태인지 확인
+    if (!gpio_initialized) {
+        setup();
+    } else {
+        printf("GPIO 이미 초기화 상태, setup() 호출 생략\n");
+    }
     char path_filename[64];
 
     char goal_str[2] = {goal[0], '\0'}; // goal이 'K'이면 "K"로 바뀜
@@ -363,6 +381,7 @@ int run_vehicle_path(const char *goal)
 
     motor_stop();
     cleanup();
+    complete_message(TOPIC_B_COMPLETED, "B차량 수행 완료");
     return 0;
 }
 

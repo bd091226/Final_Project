@@ -15,100 +15,26 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 #include <sys/types.h>
 #include <sys/select.h>
 #include "moter_control.h"
-
-// MQTT 설정
-#define ADDRESS   "tcp://broker.hivemq.com:1883"  // 브로커 주소
-#define CLIENTID  "Vehicle_B"             // 클라이언트 ID
-#define TOPIC_B "vehicle/status_B"      // 상태 발행 토픽
-#define CMD_B "vehicle/storage/B"     // 제어 명령 구독 토픽
-
-#define TOPIC_B_DEST        "storage/b_dest" // 목적지 수신
-#define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived"
-
-#define QOS       0                         // QoS 레벨
-#define TIMEOUT   10000L                    // 연결 타임아웃 (ms)
-
-// 방향 정의
-#define NORTH   0    // 북쪽
-#define EAST    1    // 동쪽
-#define SOUTH   2    // 남쪽
-#define WEST    3    // 서쪽
-
-// 그리드 및 경로 설정
-#define ROWS      7     // 행 개수
-#define COLS      9     // 열 개수
-#define MAX_PATH  100   // 최대 경로 길이
-
-// 모터 제어 핀 설정
-#define CHIP "gpiochip4"
-#define IN1_PIN 17
-#define IN2_PIN 18
-#define ENA_PIN 12
-#define IN3_PIN 22
-#define IN4_PIN 23
-#define ENB_PIN 13
-
-// 모터 동작 타이밍 (초)
-#define SECONDS_PER_GRID_STEP       1.1
-#define SECONDS_PER_90_DEG_ROTATION 0.8
-#define PRE_ROTATE_FORWARD_CM       8.0f
-
-// ID 정의
-#define ID        "B"
-
-// 점 좌표 구조체
-typedef struct { int r, c; } Point;
-
-// A* 노드 구조체
-typedef struct Node {
-    Point pt;           // 현재 위치
-    int g, h, f;        // g: 시작->현재, h: 휴리스틱, f=g+h
-    struct Node *parent;// 부모 노드 포인터
-} Node;
-
-static struct gpiod_chip *chip;
-static struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
+#include "Bcar_moter.h"
 
 
-// 프로토타입
-static void handle_sigint(int sig);
-// 프로토타입 선언부 수정
-void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec);
-void motor_go(int speed, double duration);
-void motor_stop(void);
-static void motor_right(int speed, double duration);
-static void motor_left(int speed, double duration);
-void rotate_one(int *dir, int turn_dir, int speed);
-void forward_one(Point *pos, int dir, int speed);
 
-Point  find_point_by_char(char ch);
-int    heuristic(Point a, Point b);
-int    is_valid(int r, int c);
-int    points_equal(Point a, Point b);
-Node  *find_lowest_f(Node **open_set, int count);
-int    in_set(Node **set, int count, Point pt);
-void   reconstruct_path(Node *curr);
-int    astar(Point start, Point goal);
-void   publish_status(Point *path, int idx, int len);
-void   print_grid_with_dir(Point pos, int dir);
-int    msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message);
-
-static Point path[MAX_PATH];            // 계산된 경로 저장
-static int   path_len = 0;              // 경로 길이
-static int   path_idx = 0;              // 경로 인덱스
-static Point current_pos = {6, 8};      // B 차량 초기 위치
-static int   dirB = NORTH;              // B 차량 초기 방향
-static volatile int move_permission = 0;
-static volatile int is_waiting = 0;
-static volatile int need_replan = 0;
+Point path[MAX_PATH];            // 계산된 경로 저장
+int   path_len = 0;              // 경로 길이
+int   path_idx = 0;              // 경로 인덱스
+Point current_pos = {6, 8};      // B 차량 초기 위치
+Direction dirB = N; // B 차량 초기 방향
+volatile int move_permission = 0;
+volatile int is_waiting = 0;
+volatile int need_replan = 0;
 
 // 전역 변수
-static MQTTClient client;
+MQTTClient client;
 char current_goal = '\0';
 int new_goal_received = 0;
 char previous_goal = '\0';
 
-static int grid[ROWS][COLS] = {
+int grid[ROWS][COLS] = {
     {'A',0,0,0,0,0,0,0,0},
     {0,1,1,1,0,1,1,1,0},
     {0,1,'S',1,0,1,'G',1,0},
@@ -118,14 +44,20 @@ static int grid[ROWS][COLS] = {
     {0,0,0,0,0,0,0,0,'B'}
 };
 
-static void handle_sigint(int sig) {
-    gpiod_line_set_value(ena, 0);
-    gpiod_line_set_value(enb, 0);
-    gpiod_chip_close(chip);
-    exit(0);
-}
+// void handle_sigint(int sig) {
+//     cleanup();
+//     gpiod_line_set_value(ena_line, 0);
+//     gpiod_line_set_value(enb_line, 0);
+//     gpiod_chip_close(chip);
+//     exit(0);
+// }
+// void handle_sigint(int sig) {
+//     printf("\n🛑 SIGINT 감지, 프로그램 종료 중...\n");
+//     cleanup();  // 리소스 해제 함수
+//     exit(0);
+// }
 
-static void delay_sec(double sec) {
+void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
 }
 
@@ -138,25 +70,25 @@ void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a
     int on_time_b = (cycle_us * pwm_b) / 100;
     int off_time_b = cycle_us - on_time_b;
 
-    gpiod_line_set_value(in1, in1_val);
-    gpiod_line_set_value(in2, in2_val);
-    gpiod_line_set_value(in3, in3_val);
-    gpiod_line_set_value(in4, in4_val);
+    gpiod_line_set_value(in1_line, in1_val);
+    gpiod_line_set_value(in2_line, in2_val);
+    gpiod_line_set_value(in3_line, in3_val);
+    gpiod_line_set_value(in4_line, in4_val);
 
     for (int i = 0; i < cycles; i++) {
-        if (pwm_a > 0) gpiod_line_set_value(ena, 1);
-        if (pwm_b > 0) gpiod_line_set_value(enb, 1);
+        if (pwm_a > 0) gpiod_line_set_value(ena_line, 1);
+        if (pwm_b > 0) gpiod_line_set_value(enb_line, 1);
 
         usleep((on_time_a < on_time_b) ? on_time_a : on_time_b);
 
-        if (pwm_a < 100) gpiod_line_set_value(ena, 0);
-        if (pwm_b < 100) gpiod_line_set_value(enb, 0);
+        if (pwm_a < 100) gpiod_line_set_value(ena_line, 0);
+        if (pwm_b < 100) gpiod_line_set_value(enb_line, 0);
 
         usleep((off_time_a > off_time_b) ? off_time_a : off_time_b);
     }
 
-    gpiod_line_set_value(ena, 0);
-    gpiod_line_set_value(enb, 0);
+    gpiod_line_set_value(ena_line, 0);
+    gpiod_line_set_value(enb_line, 0);
 }
 
 void motor_go(int speed, double duration) {
@@ -175,7 +107,7 @@ static void motor_right(int speed, double duration) {
     motor_control(1, 0, 0, 1, speed, speed, duration);
 }
 
-void rotate_one(int *dir, int turn_dir, int speed) {
+void rotate_one(Direction *dir, int turn_dir, int speed) {
     double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * 1.1;
     motor_go(speed, t0);                 // 회전 전 전진 보정
     motor_stop();
@@ -198,18 +130,6 @@ void forward_one(Point *pos, int dir, int speed) {
         case 3: pos->c--; break;
     }
 }
-
-void cleanup()
-{
-    gpiod_line_release(in1);
-    gpiod_line_release(in2);
-    gpiod_line_release(ena);
-    gpiod_line_release(in3);
-    gpiod_line_release(in4);
-    gpiod_line_release(enb);
-    gpiod_chip_close(chip);
-}
-
 
 // 휴리스틱: 맨해튼 거리
 int heuristic(Point a, Point b) {
@@ -375,7 +295,7 @@ void send_arrival_message(MQTTClient client, char goal)
     if(current_pos.r == 6 && current_pos.c == 8) 
     {
         char goal_str[2] = {goal, '\0'}; // 문자열로 변환
-        printf("%s 집하센터로 출발",goal_str);
+        printf("%s 집하센터로 출발\n",goal_str);
         run_vehicle_path(goal_str);
     }
     else{
@@ -395,139 +315,141 @@ void send_arrival_message(MQTTClient client, char goal)
 }
 
 // 콜백 처리
-int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
-    char buf[message->payloadlen+1];
-    memcpy(buf, message->payload, message->payloadlen);
-    buf[message->payloadlen] = '\0';
-    printf("[수신] %s -> %s \n", topic,buf);
-    if (!strcmp(buf, "move")) 
-    {
-        is_waiting = 0; 
-        move_permission = 1; 
-        puts(">> move");
-    // } else if (!strcmp(buf, "wait")) {
-    //     is_waiting = 1; 
-    //     puts(">> wait");
-    // } else if (!strcmp(buf, "replan")) {
-    //     need_replan = 1; 
-    //     puts(">> replan");
-    }
-    if(strcmp(topic, TOPIC_B_DEST) == 0) 
-    {
-        current_goal = buf[0];           // 수신한 목적지 저장 (ex. 'K')
-        new_goal_received = 1;           // 목적지 수신 플래그 설정
-    }
-    MQTTClient_freeMessage(&message);
-    MQTTClient_free(topic);
-    return 1;
-}
+// int msgarrvd(void *ctx, char *topic, int len, MQTTClient_message *message) {
+//     char buf[message->payloadlen+1];
+//     memcpy(buf, message->payload, message->payloadlen);
+//     buf[message->payloadlen] = '\0';
+//     printf("[수신] %s -> %s \n", topic,buf);
+//     if (!strcmp(buf, "move")) 
+//     {
+//         is_waiting = 0; 
+//         move_permission = 1; 
+//         puts(">> move");
+//     // } else if (!strcmp(buf, "wait")) {
+//     //     is_waiting = 1; 
+//     //     puts(">> wait");
+//     // } else if (!strcmp(buf, "replan")) {
+//     //     need_replan = 1; 
+//     //     puts(">> replan");
+//     }
+//     if(strcmp(topic, TOPIC_B_DEST) == 0) 
+//     {
+//         current_goal = buf[0];           // 수신한 목적지 저장 (ex. 'K')
+//         new_goal_received = 1;           // 목적지 수신 플래그 설정
+//     }
+//     MQTTClient_freeMessage(&message);
+//     MQTTClient_free(topic);
+//     return 1;
+// }
 
-int main(void) {
-    signal(SIGINT, handle_sigint);
+// int main(void) {
+//     signal(SIGINT, handle_sigint);
 
-    chip = gpiod_chip_open_by_name(CHIP);
-    in1 = gpiod_chip_get_line(chip, IN1_PIN);
-    in2 = gpiod_chip_get_line(chip, IN2_PIN);
-    ena = gpiod_chip_get_line(chip, ENA_PIN);
-    in3 = gpiod_chip_get_line(chip, IN3_PIN);
-    in4 = gpiod_chip_get_line(chip, IN4_PIN);
-    enb = gpiod_chip_get_line(chip, ENB_PIN);
+//     chip = gpiod_chip_open_by_name(CHIP);
+//     in1_line = gpiod_chip_get_line(chip, IN1_PIN);
+//     in2_line = gpiod_chip_get_line(chip, IN2_PIN);
+//     ena_line = gpiod_chip_get_line(chip, ENA_PIN);
+//     in3_line = gpiod_chip_get_line(chip, IN3_PIN);
+//     in4_line = gpiod_chip_get_line(chip, IN4_PIN);
+//     enb_line = gpiod_chip_get_line(chip, ENB_PIN);
 
-    gpiod_line_request_output(in1, "IN1", 0);
-    gpiod_line_request_output(in2, "IN2", 0);
-    gpiod_line_request_output(ena, "ENA", 0);
-    gpiod_line_request_output(in3, "IN3", 0);
-    gpiod_line_request_output(in4, "IN4", 0);
-    gpiod_line_request_output(enb, "ENB", 0);
+//     gpiod_line_request_output(in1_line, "IN1", 0);
+//     gpiod_line_request_output(in2_line, "IN2", 0);
+//     gpiod_line_request_output(ena_line, "ENA", 0);
+//     gpiod_line_request_output(in3_line, "IN3", 0);
+//     gpiod_line_request_output(in4_line, "IN4", 0);
+//     gpiod_line_request_output(enb_line, "ENB", 0);
     
-    MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
-    MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
-    MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
+//     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
+//     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
+//     MQTTClient_setCallbacks(client, NULL, NULL, msgarrvd, NULL);
 
-    if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
-        fprintf(stderr, "MQTT 연결 실패\n");
-        return 1;
-    }
-    MQTTClient_subscribe(client, CMD_B, QOS);
-    MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
+//     if (MQTTClient_connect(client, &opts) != MQTTCLIENT_SUCCESS) {
+//         fprintf(stderr, "MQTT 연결 실패\n");
+//         return 1;
+//     }
+//     MQTTClient_subscribe(client, CMD_B, QOS);
+//     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
 
-    while (1)
-    {
-        MQTTClient_yield(); // 콜백을 실행시키기 위한 함수
+//     while (1)
+//     {
+//         MQTTClient_yield(); // 콜백을 실행시키기 위한 함수
 
-        if (new_goal_received && current_goal != '\0')
-        {
-            printf("➡️  A* 경로 탐색 시작: 목적지 '%c'\n", current_goal);
+//         if (new_goal_received && current_goal != '\0')
+//         {
+//             printf("➡️  A* 경로 탐색 시작: 목적지 '%c'\n", current_goal);
 
-            Point goal = find_point_by_char(current_goal);
-            if (!astar(current_pos, goal))
-            {
-                printf("❌ 경로 탐색 실패: %c\n", current_goal);
-                new_goal_received = 0;
-                continue;
-            }
+//             Point goal = find_point_by_char(current_goal);
+//             if (!astar(current_pos, goal))
+//             {
+//                 printf("❌ 경로 탐색 실패: %c\n", current_goal);
+//                 new_goal_received = 0;
+//                 continue;
+//             }
 
-            path_idx = 0;
-            publish_status(path, path_idx, path_len);
+//             path_idx = 0;
+//             publish_status(path, path_idx, path_len);
 
-            while (path_idx < path_len)
-            {
-                while (is_waiting || !move_permission)
-                {
-                    MQTTClient_yield();
-                    usleep(200000);
-                }
-                move_permission = 0;
+//             while (path_idx < path_len)
+//             {
+//                 while (is_waiting || !move_permission)
+//                 {
+//                     MQTTClient_yield();
+//                     usleep(200000);
+//                 }
+//                 move_permission = 0;
 
-                Point nxt = path[path_idx];
-                int td = (nxt.r < current_pos.r ? NORTH :
-                          nxt.r > current_pos.r ? SOUTH :
-                          nxt.c > current_pos.c ? EAST  : WEST);
-                int diff = (td - dirB + 4) % 4;
-                if (diff == 3) diff = -1;
+//                 Point nxt = path[path_idx];
+//                 int td = (nxt.r < current_pos.r ? N :
+//                           nxt.r > current_pos.r ? S :
+//                           nxt.c > current_pos.c ? E  : W);
+//                 int diff = (td - dirB + 4) % 4;
+//                 if (diff == 3) diff = -1;
 
-                if (diff < 0)
-                {
-                    puts("[B] TURN_LEFT");
-                    rotate_one(&dirB, -1, 60);
-                }
-                else if (diff > 0)
-                {
-                    puts("[B] TURN_RIGHT");
-                    rotate_one(&dirB, +1, 60);
-                }
-                else
-                {
-                    puts("[B] FORWARD");
-                    forward_one(&current_pos, dirB, 60);
-                    path_idx++;
-                }
+//                 if (diff < 0)
+//                 {
+//                     puts("[B] TURN_LEFT");
+//                     rotate_one(&dirB, -1, 60);
+//                 }
+//                 else if (diff > 0)
+//                 {
+//                     puts("[B] TURN_RIGHT");
+//                     rotate_one(&dirB, +1, 60);
+//                 }
+//                 else
+//                 {
+//                     puts("[B] FORWARD");
+//                     forward_one(&current_pos, dirB, 60);
+//                     path_idx++;
+//                 }
 
-                publish_status(path, path_idx, path_len);
-                print_grid_with_dir(current_pos, dirB);
-            }
-            if(current_goal=='B')
-            {
-                //cleanup();
-                send_arrival_message(client, previous_goal);
+//                 publish_status(path, path_idx, path_len);
+//                 print_grid_with_dir(current_pos, dirB);
+//             }
+//             if(current_goal=='B')
+//             {
+//                 //cleanup();
+//                 send_arrival_message(client, previous_goal);
                 
-            }
-            else{
-                send_arrival_message(client, current_goal);
+//             }
+//             else{
+//                 send_arrival_message(client, current_goal);
                 
-            }
+//             }
             
-            previous_goal = current_goal;
-            new_goal_received = 0; // 현재 목적지 처리가 끝났으므로 플래그 리셋
-            current_goal = '\0';
-            cleanup();
+//             previous_goal = current_goal;
+//             new_goal_received = 0; // 현재 목적지 처리가 끝났으므로 플래그 리셋
+//             current_goal = '\0';
+//             // cleanup();
             
-        }
-        usleep(100000); // 0.1초 대기
+//         }
+//         usleep(100000); // 0.1초 대기
 
-    }
+//     }
 
-    MQTTClient_disconnect(client, TIMEOUT);
-    MQTTClient_destroy(&client);
-    return 0;
-}
+//     cleanup();
+
+//     MQTTClient_disconnect(client, TIMEOUT);
+//     MQTTClient_destroy(&client);
+//     return 0;
+// }
