@@ -1,12 +1,9 @@
 /*
 Bcar_C.c
 컴파일 : 
-gcc -o Bcar_Container \
-    count_mattcheck.c sensor.c \
-    $(pkg-config --cflags --libs libgpiod) \
-    -lpthread -lpaho-mqtt3c -lm
+gcc -o Bcar_C Bcar_C.c sensor.c -lpaho-mqtt3c -lgpiod
 
-실행 :
+실행 : ./Bcar_C
 */
 #include <stdio.h>
 #include <stdlib.h>
@@ -199,7 +196,7 @@ void connection_lost(void *context, char *cause)
 }
 int main(int argc, char *argv[])
 {
-    sensor_init()
+    sensor_init();
 
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     // 전역 clinet 객체를 생성
