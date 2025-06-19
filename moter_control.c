@@ -52,13 +52,32 @@ void generate_pwm(struct gpiod_line *line, int pulse_width_us, int duration_ms) 
         usleep(20000 - pulse_width_us);
     }
 }
+int angle_to_pulse(int angle)
+{
+    // -90 ~ +90 범위를 0 ~ 180으로 변환
+    if (angle < -90)
+        angle = -90;
+    if (angle > 90)
+        angle = 90;
+    
+    int mapped_angle = angle + 90; // -90 -> 0, 0 -> 90, 90 -> 180
+    
+    return 500 + (mapped_angle * 2000 / 180); // 500~2500us
+}
 
-void rotate_servo(int pulse_width_us, int duration_ms) {
-    if (!servo_line) {
-        fprintf(stderr, "서보모터 라인이 초기화되지 않았습니다.\n");
-        return;
+void move_servo(struct gpiod_line *line, int angle)
+{
+    int high_time = angle_to_pulse(angle);
+    int low_time = PERIOD_MS * 1000 - high_time;
+
+    // 10회 반복 (약 0.2초 유지)
+    for (int i = 0; i < 10; ++i)
+    {
+        gpiod_line_set_value(line, 1); // HIGH
+        usleep(high_time);
+        gpiod_line_set_value(line, 0); // LOW
+        usleep(low_time);
     }
-    generate_pwm(servo_line, pulse_width_us, duration_ms);
 }
 
 void setup()
@@ -83,20 +102,6 @@ void setup()
 
     // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
     // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
-
-    servo_line = gpiod_chip_get_line(chip, SERVO_PIN);
-    if (!servo_line) {
-        perror("servo pin line request failed");
-        gpiod_chip_close(chip);
-        chip = NULL;
-        return;
-    }
-    if (gpiod_line_request_output(servo_line, "servo", 0) < 0) {
-        perror("servo line request output failed");
-        gpiod_chip_close(chip);
-        chip = NULL;
-        return;
-    }
 
     if (!in1_line || !in2_line || !ena_line || !in3_line || !in4_line || !enb_line)
     {
@@ -326,12 +331,6 @@ int run_vehicle_path(const char *goal)
         return 1;
     }
 
-    // // GPIO가 이미 초기화된 상태인지 확인
-    // if (!gpio_initialized) {
-    //     setup();
-    // } else {
-    //     printf("GPIO 이미 초기화 상태, setup() 호출 생략\n");
-    // }
     char path_filename[64];
 
     char goal_str[2] = {goal[0], '\0'}; // goal이 'K'이면 "K"로 바뀜
@@ -378,32 +377,36 @@ int run_vehicle_path(const char *goal)
         // }
     }
 
-    chip = gpiod_chip_open_by_name(CHIP);
-    if (!chip) {
-        perror("gpiod_chip_open_by_name");
-        return 1;
-    }
-
     servo_line = gpiod_chip_get_line(chip, SERVO_PIN);
     if (!servo_line) {
-        perror("gpiod_chip_get_line");
+        perror("servo pin line request failed");
         gpiod_chip_close(chip);
+        chip = NULL;
+        return 1;
+    }
+    if (gpiod_line_request_output(servo_line, "servo", 0) < 0) {
+        perror("servo line request output failed");
+        gpiod_chip_close(chip);
+        chip = NULL;
         return 1;
     }
 
-   // 복귀 경로 시작 전 서보모터 0도 → 90도 → 0도 회전
-    printf("서보모터 0도 → 90도 → 0도 회전 시작\n");
-    rotate_servo(MIN_PULSE_WIDTH, 1000);
-    usleep(1000000);
-    rotate_servo(MID_PULSE_WIDTH, 2000);
-    usleep(2000000);
-    rotate_servo(MIN_PULSE_WIDTH, 1000);
-    usleep(1000000);
-    printf("서보모터 회전 완료\n");
+    // printf("서보모터 0도\n");
+    // move_servo(servo_line, 0);
+    // usleep(1000000); // 1초 대기
+
+    printf("서보모터 90도\n");
+    move_servo(servo_line,750);
+    usleep(1000000); // 1초 대기
+
+    printf("서보모터 0도\n");
+    move_servo(servo_line, 0);
+    usleep(1000000); // 1초 대기
+
 
 
     snprintf(path_filename, sizeof(path_filename), "path_%s_to_B.txt", goal_str);
-    printf("\n복귀 경로 파일: %s\n", path_filename);
+    printf("\n복귀 파일: %s\n", path_filename);
 
     path_len = load_path_from_file(path_filename, path);
     //current_dir = S; // 복귀 시 초기 방향을 남쪽 또는 적절히 설정
@@ -451,92 +454,3 @@ int run_vehicle_path(const char *goal)
     complete_message(TOPIC_B_COMPLETED, "B차량 수행 완료");
     return 0;
 }
-
-
-// int main()
-// {
-//     setup();
-
-//     Position path[MAX_PATH_LENGTH];
-//     int path_len = load_path_from_file("path_B_to_G.txt", path);
-//     Direction current_dir = E;
-
-//     if (path_len <= 0)
-//     {
-//         fprintf(stderr, "경로 파일 읽기 실패\n");
-//         cleanup();
-//         return 1;
-//     }
-
-//     printf("[차량 이동 시작: S → B]\n");
-
-//     for (int i = 0; i < path_len - 1; i++)
-//     {
-//         while (1)
-//         {
-//             float distance = get_distance_cm();
-//             printf("거리: %.2f cm\n", distance);
-
-//             if (distance < 10.0)
-//             {
-//                 printf("거리 10cm 이하 - 차량 정지\n");
-//                 stop_motor();
-//                 delay_ms(100);
-//             }
-//             else
-//             {
-//                 printf("이동 재개\n");
-//                 current_dir = move_step(path[i], path[i + 1], current_dir);
-//                 break; // 다음 위치로 진행
-//             }
-//         }
-//     }
-
-//     turn_left(40);
-//     usleep(1105 * 1000);
-
-//     stop_motor();
-
-//     path_len = load_path_from_file("path_G_to_B.txt", path);
-//     current_dir = S;
-
-//     if (path_len <= 0)
-//     {
-//         fprintf(stderr, "경로 파일 읽기 실패\n");
-//         cleanup();
-//         return 1;
-//     }
-
-//     printf("[차량 이동 시작: B → S]\n");
-
-//     for (int i = 0; i < path_len - 1; i++)
-//     {
-//         while (1)
-//         {
-//             float distance = get_distance_cm();
-//             if (distance < 0)
-//             {
-//                 fprintf(stderr, "거리 측정 실패\n");
-//                 stop_motor();
-//                 break;
-//             }
-//             printf("거리: %.2f cm\n", distance);
-
-//             if (distance < 10.0)
-//             {
-//                 printf("거리 10cm 이하 - 차량 정지\n");
-//                 stop_motor();
-//                 delay_ms(100);
-//             }
-//             else
-//             {
-//                 printf("이동 재개\n");
-//                 current_dir = move_step(path[i], path[i + 1], current_dir);
-//                 break; // 다음 위치로 진행
-//             }
-//         }
-//     }
-//     cleanup();
-
-//     return 0;
-// }

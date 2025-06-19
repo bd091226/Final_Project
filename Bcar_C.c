@@ -17,11 +17,6 @@
 #define TOPIC_B_POINT        "storage/b_point"
 #define TOPIC_B_COMPLETED "vehicle/B_completed"
 
-// #define QOS 1
-// #define TIMEOUT 10000L
-
-// MQTTClient client;
-
 // B차 출발지점 도착
 void starthome()
 {
@@ -104,10 +99,17 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         move_permission = 1; 
         puts(">> move");
     }
-    if(strcmp(topicName, TOPIC_B_DEST) == 0) 
+    if (strcmp(topicName, TOPIC_B_DEST) == 0) 
     {
-        current_goal = msg[0];           // 수신한 목적지 저장 (ex. 'K')
-        new_goal_received = 1;           // 목적지 수신 플래그 설정
+        // 문자열이 비어 있지 않고, 첫 글자가 대문자 알파벳이면 허용
+        if (msg[0] == 'K' || msg[0] == 'G' || msg[0] == 'W' || msg[0] == 'S'|| msg[0] == 'B') {
+            current_goal = msg[0];
+            new_goal_received = 1;
+            printf("➡️  A* 경로 탐색 시작: 목적지 '%c'\n", current_goal);
+        } else {
+            // 유효하지 않음 → 아무 반응 없이 무시
+            printf("⚠️  무시됨: 잘못된 메시지 '%s'\n", msg);
+        }
     }
     if(strcmp(topicName, TOPIC_B_DEST_ARRIVED) == 0) 
     {
