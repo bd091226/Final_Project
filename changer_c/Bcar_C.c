@@ -1,9 +1,10 @@
 /*
 Bcar_C.c
 컴파일 : 
-gcc -o Bcar_C Bcar_C.c sensor.c -lpaho-mqtt3c -lgpiod
+gcc -o Bcar_C Bcar_C.c sensor.c -lpaho-mqtt3c -lgpiod -lpigpio -pthread -lrt
 
-실행 : ./Bcar_C
+실행 : 
+./Bcar_C
 */
 #include <stdio.h>
 #include <stdlib.h>
