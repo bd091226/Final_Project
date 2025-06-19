@@ -11,11 +11,13 @@
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived" 
 #define TOPIC_B_POINT        "storage/b_point"
 #define TOPIC_B_POINT_ARRIVED   "storage/b_point_arrived"
+#define TOPIC_B_COMPLETED "vehicle/B_completed"
 #define QOS 1
 #define TIMEOUT 10000L
 
 MQTTClient client;
 
+int waiting_for_arrival = 0;  // 0: 조회 가능, 1: 도착 대기 중
 char current_zone[64] = {0}; // 현재 목적지 구역 ID를 저장하는 전역 변수  
 
 // db_access.py에서 목적지 구역 ID를 가져오는 함수
@@ -146,6 +148,14 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     {
         publish_zone(current_zone);    // 목적지 zone ID 발행
     }
+    if(strcmp(topicName, TOPIC_B_COMPLETED) == 0)
+    {
+        // 다음 목적지 조회를 가능하게 설정
+        waiting_for_arrival = 0;
+        // printf("B차량이 구역함에서 나갔습니다.\n");
+        // B차량이 구역함에서 나갔다는 통신이 오면 서보모터를 닫는 로직을 추가해야 합니다.
+        // move_servo(chip, 0); // 수정필요!! B차 구역함 나감시 임의로 02(0) 구역함 서보모터 동작
+    }
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
     return 1;
@@ -177,6 +187,8 @@ int main(int argc, char *argv[])
 
     MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
     MQTTClient_subscribe(client, TOPIC_B_POINT_ARRIVED, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_COMPLETED, QOS);
+    
     int rc1 = MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
     if (rc1 != MQTTCLIENT_SUCCESS) {
         fprintf(stderr, "ERROR: TOPIC_B_DEST_ARRIVED 구독 실패, rc=%d\n", rc1);
@@ -188,7 +200,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    int waiting_for_arrival = 0;  // 0: 조회 가능, 1: 도착 대기 중
+    
     char prev_zone[64] = {0};
     // 주기적 또는 이벤트 기반 호출 예시
     while (1)

@@ -392,7 +392,7 @@ def B_destination(차량_ID='B-1001'):
                 print("⚠️ 포화 구역 조회 실패: 등록된 포화 구역이 없습니다.")
                 return None
             region_id = row[0]
-            print(f"🔍 포화 구역 조회 성공: region_id={region_id}")
+            print(f"{region_id}")
 
             # 2) 운행중 상태로 새 운행 생성
             cur.execute("""

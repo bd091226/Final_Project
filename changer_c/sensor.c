@@ -140,7 +140,7 @@ void move_servo(struct gpiod_chip *chip, int servo_index)
 
     gpiod_line_request_output(servo, "servo", 0);
 
-    int pulseWidth = 500 + 90 * 11; // 90도
+    int pulseWidth = 500 + 0 * 11; // 90도
     int cycles = 20;
 
     // 수정해야함!!! B차가 아직 구역함에서 나갔다는 통신이 구현이 없어서
@@ -161,7 +161,7 @@ void move_servo(struct gpiod_chip *chip, int servo_index)
     sleep(3);
 
     // 0도로 복귀
-    int resetPulseWidth = 500 + 0 * 11;
+    int resetPulseWidth = 500 + 90 * 11;
     for (int i = 0; i < cycles; i++)
     {
         gpiod_line_set_value(servo, 1);
@@ -175,32 +175,97 @@ void move_servo(struct gpiod_chip *chip, int servo_index)
     gpiod_line_release(servo);
 }
 
-// int main()
-// {
-//     float last_distance = 0.0;
+int main()
+{
+    float last_distance = 0.0;
 
-//     chip = gpiod_chip_open_by_name(CHIP_NAME);
-//     if (!chip)
+    chip = gpiod_chip_open_by_name(CHIP_NAME);
+    if (!chip)
+    {
+        fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
+        return 1;
+    }
+
+    printf("▶️ 무한 루프 시작 (종료하려면 Ctrl+C)\n");
+
+    while (1)
+    {
+        int triggered = move_distance(chip, 0, &last_distance);
+
+        if (triggered)
+        {
+            move_servo(chip, 0);
+        }
+
+        usleep(500000); // 0.5초 딜레이
+    }
+
+    // 이 코드는 실제로 실행되지 않음 (루프 무한)
+    gpiod_chip_close(chip);
+    return 0;
+}
+
+
+// #include <stdio.h>
+// #include <unistd.h>
+// #include <time.h>
+// #include <gpiod.h>
+
+// #define CHIPNAME "gpiochip0"
+// #define TRIGGER_PIN 17
+// #define ECHO_PIN 4
+// #define CONSUMER "distance_sensor"
+
+// void sleep_us(int microseconds) {
+//     struct timespec ts;
+//     ts.tv_sec = microseconds / 1000000;
+//     ts.tv_nsec = (microseconds % 1000000) * 1000;
+//     nanosleep(&ts, NULL);
+// }
+
+// double measure_distance(struct gpiod_line *trig, struct gpiod_line *echo) {
+//     struct timespec start, end;
+
+//     // Send 10us pulse
+//     gpiod_line_set_value(trig, 0);
+//     sleep_us(2);
+//     gpiod_line_set_value(trig, 1);
+//     sleep_us(10);
+//     gpiod_line_set_value(trig, 0);
+
+//     // Wait for echo start
+//     while (gpiod_line_get_value(echo) == 0);
+//     clock_gettime(CLOCK_MONOTONIC, &start);
+
+//     // Wait for echo end
+//     while (gpiod_line_get_value(echo) == 1);
+//     clock_gettime(CLOCK_MONOTONIC, &end);
+
+//     double time_us = (end.tv_sec - start.tv_sec) * 1e6 +
+//                      (end.tv_nsec - start.tv_nsec) / 1000.0;
+
+//     return (time_us * 0.0343) / 2.0;
+// }
+
+// int main() {
+//     struct gpiod_chip *chip;
+//     struct gpiod_line *trig, *echo;
+
+//     chip = gpiod_chip_open_by_name(CHIPNAME);
+//     trig = gpiod_chip_get_line(chip, TRIGGER_PIN);
+//     echo = gpiod_chip_get_line(chip, ECHO_PIN);
+
+//     gpiod_line_request_output(trig, CONSUMER, 0);
+//     gpiod_line_request_input(echo, CONSUMER);
+
+//     while(1)
 //     {
-//         fprintf(stderr, "❌ GPIO 칩 열기 실패\n");
-//         return 1;
+//         double distance = measure_distance(trig, echo);
+//         printf("Measured Distance: %.2f cm\n", distance);
+//         sleep(1); // 1초 간격으로 측정
 //     }
 
-//     printf("▶️ 무한 루프 시작 (종료하려면 Ctrl+C)\n");
-
-//     while (1)
-//     {
-//         int triggered = move_distance(chip, 0, &last_distance);
-
-//         if (triggered)
-//         {
-//             move_servo(chip, 0);
-//         }
-
-//         usleep(500000); // 0.5초 딜레이
-//     }
-
-//     // 이 코드는 실제로 실행되지 않음 (루프 무한)
 //     gpiod_chip_close(chip);
 //     return 0;
-//}
+// }
+
