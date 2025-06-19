@@ -1,3 +1,13 @@
+/*
+Bcar_C.c
+컴파일 : 
+gcc -o Bcar_Container \
+    count_mattcheck.c sensor.c \
+    $(pkg-config --cflags --libs libgpiod) \
+    -lpthread -lpaho-mqtt3c -lm
+
+실행 :
+*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -122,6 +132,25 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         char zone_id = msgPayload[0];  // 문자 하나
         char zone_id_str[2] = { zone_id, '\0' };  // 문자열로 변환
 
+        int servo_idx = -1;
+        // zone_id → 서보 인덱스 매핑
+        switch (zone_id) {
+            case 'S': servo_idx = 0; break;  // S 구역 → 0번 서보
+            case 'G': servo_idx = 1; break;  // G 구역 → 1번 서보
+            case 'K': servo_idx = 2; break;  // K 구역 → 2번 서보
+            case 'W': servo_idx = 3; break;  // W 구역 → 3번 서보
+            default:
+                fprintf(stderr, "Unknown zone_id '%c'\n", zone_id);
+                break;
+        }
+
+        if (servo_idx >= 0) {
+            printf("[서보] zone_id='%c' → servo %d 작동\n",
+                   zone_id, servo_idx+1);
+            // sensor.c 의 servo_once(idx) 를 호출하는 래퍼
+            sensor_activate_servo(servo_idx);
+        }
+
         char cmd2[512];
         snprintf(cmd2, sizeof(cmd2),
                 "python3 - << 'EOF'\n"
@@ -170,6 +199,8 @@ void connection_lost(void *context, char *cause)
 }
 int main(int argc, char *argv[])
 {
+    sensor_init()
+
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     // 전역 clinet 객체를 생성
     MQTTClient_create(&client, ADDRESS, CLIENTID,
@@ -231,5 +262,6 @@ int main(int argc, char *argv[])
 
     MQTTClient_disconnect(client, 10000);
     MQTTClient_destroy(&client);
+    sensor_cleanup(); 
     return 0;
 }
