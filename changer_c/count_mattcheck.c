@@ -1,4 +1,17 @@
+/*
+count_mattcheck.c
+컴파일 :
+gcc -o count_mattcheck \
+    count_mattcheck.c sensor.c \
+    $(pkg-config --cflags --libs libgpiod) \
+    -lpthread -lpaho-mqtt3c -lm
+실행 :
+./count_mattcheck
+*/
+
 #include "sensor.h" // 초음파 센서와 관련 함수
+#include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +34,9 @@ MQTTClient client;          // MQTT 클라이언트 전역 변수
 volatile int connected = 0; // 연결 여부 확인
 
 char trip_id_str[16]; // 전역 변수로 trip_id 문자열 선언
+
+// 센서 쓰레드가 계속 돌아갈지 제어하는 플래그
+static volatile bool sensor_thread_running = true;
 
 void startpoint()
 {
@@ -219,7 +235,10 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     {
         // 도착 알림 수신 확인 메시지 터미널에 출력
         printf("✅ A차가 목적지에 도착했습니다. 필요한 동작을 수행하세요.\n");
-
+        
+        //여기 초음파 센서 조건 실행하는 걸 해놔야함
+        //임시로 조건 맞으면업데이트한다고 출력만하게 해놓았는데
+        //초음파 조건 맞으면 db 업데이트 하는 걸로 수정 필요!
         
         char msgPayload[512]; // 예: "02 도착"
         strncpy(msgPayload, message->payload, message->payloadlen);
@@ -365,8 +384,23 @@ void delivered(void *context, MQTTClient_deliveryToken dt)
     // 메시지 발송 완료 콜백 (필요시 사용)
 }
 
+// 센서 전용 쓰레드 함수
+static void *sensor_thread_fn(void *arg) {
+    sensor_init();  // GPIO 초기화
+
+    // 거리 ≤ 20cm, 변화량 ≥ 3cm, 0.2초 간격으로 모니터링
+    sensor_monitor_triggers(20.0f, 3.0f, 200000, &sensor_thread_running);
+
+    sensor_cleanup();  // GPIO 정리
+    return NULL;
+}
+
 int main(int argc, char *argv[])
 {
+     // 1) 센서 쓰레드 시작
+    pthread_t thr;
+    pthread_create(&thr, NULL, sensor_thread_fn, NULL);
+
     // 연결 옵션 구조체 초기화
     MQTTClient_connectOptions conn_opts = MQTTClient_connectOptions_initializer;
     int rc;
@@ -406,6 +440,10 @@ int main(int argc, char *argv[])
     {
         sleep(1); // Linux에서는 이것만 필요
     }
+
+    // 종료 시 센서 쓰레드 정리
+    sensor_thread_running = false;
+    pthread_join(thr, NULL);
 
     MQTTClient_disconnect(client, 10000); // 연결해제
     MQTTClient_destroy(&client);          // 클라이언트 객체 소멸
