@@ -1,9 +1,3 @@
-/*
-컴파일 :
-gcc main.c sensor_A.c acar.c -o main -lpaho-mqtt3c -lgpiod -lm
-실행   :
-./main
-*/
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -150,16 +144,6 @@ void startpoint()
     }
 }
 
-// 보관함 목적지 도착 시 실행되는 함수
-// MQTT로 "목적지 도착" 메시지 발행
-// void dest_arrived(const char *dest) {
-//     char msg_buffer[128];
-//     snprintf(msg_buffer,sizeof(msg_buffer),"%s",dest);
-
-//     if (publish_message(TOPIC_A_DEST_ARRIVED, msg_buffer) == MQTTCLIENT_SUCCESS) {
-//         printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-//     }
-// }
 
 // MQTT 연결 끊김 콜백
 void connlost(void *context, char *cause) {
