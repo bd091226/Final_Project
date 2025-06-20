@@ -389,7 +389,7 @@ def B_destination(차량_ID='B-1001'):
             row = cur.fetchone()
 
             if not row:
-                print("⚠️ 포화 구역 조회 실패: 등록된 포화 구역이 없습니다.")
+                # print("⚠️ 포화 구역 조회 실패: 등록된 포화 구역이 없습니다.")
                 return None
             region_id = row[0]
             print(f"{region_id}")
@@ -404,7 +404,7 @@ def B_destination(차량_ID='B-1001'):
 
             trip_id = cur.lastrowid
             conn.commit()
-            print(f"✅ 새 운행 생성 성공: trip_id={trip_id}, vehicle_id={차량_ID}")
+            # print(f"✅ 새 운행 생성 성공: trip_id={trip_id}, vehicle_id={차량_ID}")
             return trip_id
 
     finally:

@@ -234,28 +234,35 @@ int main(int argc, char *argv[])
     // 주기적 또는 이벤트 기반 호출 예시
     while (1)
     {
-        // ─────────────────────────────────────────────
-        // ① 네트워크 I/O 처리 (메시지 수신 콜백을 실행시키기 위해)
-        MQTTClient_yield();
+        MQTTClient_yield();  // 콜백 실행
 
         if (!waiting_for_arrival)
         {
             char *zone = B_destination();
-            if (zone && *zone && strcmp(zone, prev_zone) != 0)
-            {
-                publish_point();       // 출발지점 메시지 발행
+            printf("🔍 B_destination() 결과: [%s]\n", zone ? zone : "NULL");
 
-                strncpy(current_zone, zone, sizeof(current_zone) - 1); // 현재 목적지를 전역 변수에 저장
+            if (zone && *zone)
+            {
+                printf("➡️ 포화 구역 발견: %s\n", zone);
+                publish_point();  // 출발지점 메시지 발행
+
+                strncpy(current_zone, zone, sizeof(current_zone) - 1);
                 current_zone[sizeof(current_zone) - 1] = '\0';
-                // publish_zone(zone);    // 목적지 zone ID 발행
+
                 strncpy(prev_zone, zone, sizeof(prev_zone) - 1);
                 prev_zone[sizeof(prev_zone) - 1] = '\0';
 
-                waiting_for_arrival = 1;  // 출발 이후에는 도착 대기 상태로 전환
+                waiting_for_arrival = 1;
+            }
+            else
+            {
+                // 포화 구역 없을 때도 출발지점 메시지 발행
+                printf("⚠️ 포화 구역 없음 → 출발지점 메시지만 발행\n");
+                //publish_point();
             }
         }
 
-        sleep(5); // 5초 간격으로 폴링
+        sleep(5);
     }
 
     MQTTClient_disconnect(client, 10000);
