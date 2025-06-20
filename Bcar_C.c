@@ -140,7 +140,7 @@ int main(void) {
     setup();  // GPIO 초기화
 
     // GPIO 초기화
-    chip = gpiod_chip_open_by_name(CHIP);
+    //chip = gpiod_chip_open_by_name(CHIP);
     in1_line = gpiod_chip_get_line(chip, IN1_PIN);
     in2_line = gpiod_chip_get_line(chip, IN2_PIN);
     ena_line = gpiod_chip_get_line(chip, ENA_PIN);
@@ -233,8 +233,6 @@ int main(void) {
 
         usleep(100000); // 0.1초
     }
-
-    cleanup();
     MQTTClient_disconnect(client, TIMEOUT);
     MQTTClient_destroy(&client);
 

@@ -54,11 +54,11 @@ typedef enum
 // 외부에서 사용할 함수 선언
 
 
-void rotate_servo(int pulse_width_us, int duration_ms);
 void delay_ms(int ms);
 void pwm_set_duty(struct gpiod_line *line, int duty_percent);
 void generate_pwm(struct gpiod_line *line, int pulse_width_us, int duration_ms) ;
-void rotate_servo(int pulse_width_us, int duration_ms);
+int angle_to_pulse(int angle);
+void move_servo(struct gpiod_line *line, int angle);
 void setup();
 void cleanup();
 void set_speed(int speedA, int speedB);

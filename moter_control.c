@@ -327,8 +327,11 @@ int complete_message(const char *topic, const char *message)
 int run_vehicle_path(const char *goal)
 {
     if (!gpio_initialized) {
-        fprintf(stderr, "GPIO가 초기화되지 않았습니다. setup()을 먼저 호출하세요.\n");
+        setup();
+        if (!gpio_initialized) {
+        fprintf(stderr, "❌ setup() 실패: GPIO 초기화되지 않음\n");
         return 1;
+    }
     }
 
     char path_filename[64];
