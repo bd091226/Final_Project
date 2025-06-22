@@ -120,7 +120,6 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
 
     //move_servo(chip, 0); // 수정필요!! B차 구역함 도착시 임의로 02(0) 구역함 서보모터 동작
                          // 나중엔 해당 구역번호를 받아서 해당 센서만 동작해야함!!
-
     if(strcmp(topicName,TOPIC_B_DEST_ARRIVED)==0)
     {
         char msgPayload[512]; // 예: "02 도착"
@@ -183,6 +182,7 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         // B차량이 구역함에서 나갔다는 통신이 오면 서보모터를 닫는 로직을 추가해야 합니다.
         // move_servo(chip, 0); // 수정필요!! B차 구역함 나감시 임의로 02(0) 구역함 서보모터 동작
     }
+
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
     return 1;
