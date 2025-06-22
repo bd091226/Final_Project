@@ -6,16 +6,21 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/select.h>
+#include <pthread.h>
 #include "moter_control.h"
 #include "Bcar_moter.h"
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 // #define CLIENTID "RaspberryPi_Bcar"
+#define TOPIC_B_DANGER       "vehicle/emergency/B"
 #define TOPIC_B_DEST "storage/b_dest"
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived"
 #define TOPIC_B_POINT_ARRIVED "storage/b_point_arrived"
 #define TOPIC_B_POINT        "storage/b_point"
 #define TOPIC_B_COMPLETED "vehicle/B_completed"
+
+volatile int danger_detected = 0; // 긴급 호출 감지 플래그
+volatile int resume_button_pressed = 0;
 
 // B차 출발지점 도착
 void starthome()
@@ -116,6 +121,11 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
         printf("도착지점 도착: %s\n", msg);
         send_arrival(msg);
     }
+    if(strcmp(topicName, TOPIC_B_DANGER) == 0)
+    {
+        printf("긴급 호출 감지\n");
+        danger_detected = 1;
+    }
     
     
 
@@ -134,6 +144,22 @@ void handle_sigint(int sig) {
     cleanup();  // 리소스 해제 함수
     exit(0);
 }
+void *button_monitor_thread(void *arg) {
+    struct gpiod_line_event event;
+
+    while (1) {
+        if (gpiod_line_event_wait(button_line, NULL) == 1) {
+            gpiod_line_event_read(button_line, &event);
+            if (event.event_type == GPIOD_LINE_EVENT_FALLING_EDGE) {
+                printf("👆 버튼 눌림 (GPIO27)\n");
+                resume_button_pressed = 1;
+            }
+        }
+        usleep(100000); // debounce
+    }
+    return NULL;
+}
+
 int main(void) {
     signal(SIGINT, handle_sigint);
 
@@ -147,6 +173,7 @@ int main(void) {
     in3_line = gpiod_chip_get_line(chip, IN3_PIN);
     in4_line = gpiod_chip_get_line(chip, IN4_PIN);
     enb_line = gpiod_chip_get_line(chip, ENB_PIN);
+    button_line = gpiod_chip_get_line(chip, BUTTON_PIN);
 
     gpiod_line_request_output(in1_line, "IN1", 0);
     gpiod_line_request_output(in2_line, "IN2", 0);
@@ -154,6 +181,7 @@ int main(void) {
     gpiod_line_request_output(in3_line, "IN3", 0);
     gpiod_line_request_output(in4_line, "IN4", 0);
     gpiod_line_request_output(enb_line, "ENB", 0);
+    gpiod_line_request_falling_edge_events(button_line, "BUTTON");
 
     // MQTT 설정
     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
@@ -170,12 +198,47 @@ int main(void) {
     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
     MQTTClient_subscribe(client, TOPIC_B_POINT, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_DANGER, QOS);
 
     printf("[B차] MQTT 연결 성공, 구독 시작\n");
+
+    pthread_t button_thread;
+    pthread_create(&button_thread, NULL, button_monitor_thread, NULL);
+
 
     // ===== 메인 동작 루프 =====
     while (1) {
         MQTTClient_yield(); // MQTT 콜백 처리
+
+        if (resume_button_pressed) {
+            resume_button_pressed = 0;
+
+            const char *payload = "done";
+            MQTTClient_message pubmsg = MQTTClient_message_initializer;
+            pubmsg.payload = (void *)payload;
+            pubmsg.payloadlen = strlen(payload);
+            pubmsg.qos = QOS;
+            pubmsg.retained = 0;
+
+            MQTTClient_deliveryToken token;
+            MQTTClient_publishMessage(client, TOPIC_B_COMPLETED, &pubmsg, &token);
+            MQTTClient_waitForCompletion(client, token, TIMEOUT);
+
+            printf("📤 버튼 눌림 → TOPIC_B_COMPLETED 송신: %s\n", payload);
+        }
+
+
+        // 👉 긴급 복귀 처리
+        if (danger_detected) {
+            current_goal = 'B';
+            new_goal_received = 1;
+
+            danger_detected = 0;     // 플래그 초기화
+            is_waiting = 0;          // 대기 상태 해제
+            move_permission = 1;     // 이동 허용
+
+            printf("🔁 경로 중단 → 'B' 목적지로 복귀\n");
+        }
 
         if (new_goal_received && current_goal != '\0') {
             printf("➡️  A* 경로 탐색 시작: 목적지 '%c'\n", current_goal);
@@ -191,6 +254,11 @@ int main(void) {
             publish_status(path, path_idx, path_len);
 
             while (path_idx < path_len) {
+                if(danger_detected)
+                {
+                    printf(" 긴급 복귀 중단 발생 !\n");
+                    break;
+                }
                 while (is_waiting || !move_permission) {
                     MQTTClient_yield();
                     usleep(200000);
@@ -220,15 +288,17 @@ int main(void) {
                 print_grid_with_dir(current_pos, dirB);
             }
 
-            if (current_goal == 'B') {
-                send_arrival_message(client, previous_goal);
-            } else {
-                send_arrival_message(client, current_goal);
+            // 경로 완주 후 도착 메시지
+            if (path_idx >= path_len) {
+                if (current_goal == 'B') {
+                    send_arrival_message(client, previous_goal);
+                } else {
+                    send_arrival_message(client, current_goal);
+                }
+                previous_goal = current_goal;
+                current_goal = '\0';
+                new_goal_received = 0;
             }
-
-            previous_goal = current_goal;
-            new_goal_received = 0;
-            current_goal = '\0';
         }
 
         usleep(100000); // 0.1초

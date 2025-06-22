@@ -24,6 +24,7 @@ struct gpiod_line *ena_line;
 struct gpiod_line *in3_line;
 struct gpiod_line *in4_line;
 struct gpiod_line *enb_line;
+struct gpiod_line *button_line;
 
 struct gpiod_line *trig_line;
 struct gpiod_line *echo_line;
@@ -99,6 +100,7 @@ void setup()
     in3_line = gpiod_chip_get_line(chip, IN3_PIN);
     in4_line = gpiod_chip_get_line(chip, IN4_PIN);
     enb_line = gpiod_chip_get_line(chip, ENB_PIN);
+    button_line = gpiod_chip_get_line(chip, BUTTON_PIN);
 
     // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
     // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
@@ -146,6 +148,7 @@ void cleanup()
     gpiod_line_release(in3_line);
     gpiod_line_release(in4_line);
     gpiod_line_release(enb_line);
+    gpiod_line_release(button_line);
     gpiod_line_release(servo_line);
     // gpiod_line_release(trig_line);
     // gpiod_line_release(echo_line);

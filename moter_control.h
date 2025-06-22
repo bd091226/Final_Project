@@ -15,6 +15,7 @@
 #define IN4_PIN 23
 #define ENB_PIN 13
 #define SERVO_PIN 26 // 서보 모터 핀
+#define BUTTON_PIN 27
 
 // 초음파 센서 핀 (예시, 필요시 변경)
 #define TRIG_PIN 6
@@ -32,6 +33,7 @@ extern struct gpiod_line *ena_line;
 extern struct gpiod_line *in3_line;
 extern struct gpiod_line *in4_line;
 extern struct gpiod_line *enb_line;
+extern struct gpiod_line *button_line;
 extern struct gpiod_line *servo_line;
 
 extern struct gpiod_line *trig_line;
