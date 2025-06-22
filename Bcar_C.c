@@ -21,6 +21,8 @@
 
 volatile int danger_detected = 0; // 긴급 호출 감지 플래그
 volatile int resume_button_pressed = 0;
+bool is_emergency_return = false;
+
 
 // B차 출발지점 도착
 void starthome()
@@ -45,13 +47,11 @@ void starthome()
         fprintf(stderr, "도착 메시지 발행 실패, rc=%d\n", rc);
         return;
     }
-    printf("[송신] %s → %s\n", payload, TOPIC_B_POINT_ARRIVED);
+    printf("[송신] %s → %s\n", payload, TOPIC_B_POINT_ARRIVED);  // B지점 도착 알림 송신
 }
 // 메시지 송신
 void send_arrival(const char *zone_id)
 {
-    // 콘솔 출력
-    //printf("[송신] B차, %s 도착\n", zone_id);
 
     // MQTT 발행
     char payload[64];
@@ -95,7 +95,8 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     // }
     if(strcmp(topicName, TOPIC_B_POINT) == 0)
     {
-        sleep(2); // 도착 후 딜레이
+        forward_one(&current_pos, dirB, 40);
+        rotate_one(&dirB, -1, 40); // 오른쪽으로 회전
         starthome();
     }
     if (!strcmp(msg, "move")) 
@@ -232,6 +233,7 @@ int main(void) {
         if (danger_detected) {
             current_goal = 'B';
             new_goal_received = 1;
+            is_emergency_return = true; // 긴급 복귀 상태 설정
 
             danger_detected = 0;     // 플래그 초기화
             is_waiting = 0;          // 대기 상태 해제
@@ -291,7 +293,17 @@ int main(void) {
             // 경로 완주 후 도착 메시지
             if (path_idx >= path_len) {
                 if (current_goal == 'B') {
-                    send_arrival_message(client, previous_goal);
+                    if(is_emergency_return)
+                    {
+                        printf("[긴급복귀] B 지점 도착 완료\n");
+                        rotate_one(&dirB, 1, 40); // 긴급 복귀 후 방향 초기화
+                        forward_one(&current_pos, dirB, 40); // 긴급 복귀 후 전진
+                        is_emergency_return=false;
+                    }
+                    else
+                    {
+                        send_arrival_message(client, previous_goal);
+                    }
                 } else {
                     send_arrival_message(client, current_goal);
                 }
