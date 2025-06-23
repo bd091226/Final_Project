@@ -4,12 +4,14 @@
 #include <signal.h>
 #include <gpiod.h>
 #include <MQTTClient.h>
+#include "encoder_c.h"
 #include "sensor_A.h"
 #include <unistd.h>  // sleep, usleep
 #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid
 #include "acar.h"
 #include <ctype.h>
+#define CHIP_NAME "/dev/gpiochip0"
 
 #define ADDRESS         "tcp://broker.hivemq.com:1883"  // 공용 MQTT 브로커 예시 (변경 가능)
 //#define CLIENTID        "RaspberryPi_A"
@@ -30,21 +32,9 @@
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
 
-// GPIO 디바이스 경로 및 핀 번호 (BCM 번호)
-// gpio 이미 사용중인 핀 (이걸 제외해서 define해줘)
-// 14,15,12,16,26,18,22,23,25,24,27
-// led왼쪽 26, led오른쪽 16
-// 모터 18,22,27,23,25,24 라서 무조건 건들이면 안됨
-#define GPIO_CHIP       "/dev/gpiochip0"
-#define GPIO_LINE1      12  // 빨강 LED
-#define GPIO_LINE2      13  // 하양 LED
-#define GPIO_LINE3      6  // 초록 LED
-
-//이거 서보모터 핀을 바꿔야함!!! A차가 이 핀으로 모터를 사용하고 있거든
-// 핀 바꾸면 밑에 주석도 풀어줘 224줄, 245줄
-#define MOTOR_IN1       19  // L298N IN1
-#define MOTOR_IN2       20  // L298N IN2
-#define BUTTON_PIN      17  // 버튼 입력 핀
+struct gpiod_line *line_m1 = NULL;
+struct gpiod_line *line_m2 = NULL;
+struct gpiod_line *line_btn = NULL;
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
 MQTTClient client;                     // 전역 MQTTClient 핸들 (콜백 및 함수들이 공유)
@@ -53,8 +43,6 @@ int max_count =3;                      // 최대 버튼 횟수
 volatile int flag_startpoint = 0;  // 전역 변수로 선언
 
 // LED(세 가지 색)를 제어하기 위한 GPIO
-struct gpiod_line *line1, *line2, *line3;
-extern struct gpiod_chip *chip;
 extern void handle_sigint(int sig);
 
 //volatile sig_atomic_t keepRunning = 1;
@@ -137,7 +125,7 @@ void startpoint()
 {
     char msg[100];
     snprintf(msg, sizeof(msg), "A차 출발지점 도착");
-    motor_go(60, 3.0);  // 모터를 60 속도로 3초간 작동
+    motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
 
     if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
         printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);
@@ -169,7 +157,7 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     }
     if(strcmp(topicName, TOPIC_A_COMPLETE_ARRIVED) == 0) {
         // 목적지 도착 메시지 수신
-        motor_go(60, 3.0);  // 모터를 60 속도로 3초간 작동
+        motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
     }
     if(strcmp(topicName,TOPIC_SUB)==0)
     {
@@ -233,8 +221,6 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
 
 
 int main() {
-    struct gpiod_line *line_m1, *line_m2, *line_btn;
-    struct gpiod_line *line1, *line2, *line3;
     int btn_value, last_btn_value;
     int ret;
 
@@ -243,6 +229,10 @@ int main() {
     
     // 1) GPIO 칩 오픈
     chip = gpiod_chip_open(GPIO_CHIP);
+    if (!chip) {
+        perror("gpiod_chip_open failed");
+        exit(1);
+    }
     ena = gpiod_chip_get_line(chip, ENA_PIN);
     enb = gpiod_chip_get_line(chip, ENB_PIN);
 
@@ -258,7 +248,7 @@ int main() {
     init_ultrasonic_pins(chip);
 
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
-    start_python_script();
+    //start_python_script();
 
     // 2) 모터 제어용 GPIO (IN1, IN2)
     line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
@@ -308,8 +298,6 @@ int main() {
     }
 
     // ENA/ENB 출력 설정
-    ena = gpiod_chip_get_line(chip, ENA_PIN);
-    enb = gpiod_chip_get_line(chip, ENB_PIN);
     gpiod_line_request_output(ena, "ENA", 1);
     gpiod_line_request_output(enb, "ENB", 1);
 
@@ -441,13 +429,13 @@ int main() {
 
             if (diff < 0) {
                 puts("[A] TURN_LEFT");
-                rotate_one(&dirA, -1, 60);  // 속도 70으로 좌회전
+                rotate_one(&dirA, -1);  // 속도 70으로 좌회전
             } else if (diff > 0) {
                 puts("[A] TURN_RIGHT");
-                rotate_one(&dirA, +1, 60);  // 속도 70으로 우회전
+                rotate_one(&dirA, +1);  // 속도 70으로 우회전
             } else {
                 puts("[A] FORWARD");
-                forward_one(&current_pos, dirA, 60);  // 속도 70으로 전진
+                forward_one(&current_pos, dirA);  // 속도 70으로 전진
                 path_idx++;
             }
 

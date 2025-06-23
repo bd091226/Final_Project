@@ -13,9 +13,6 @@
 
 // 전역 변수 정의
 //MQTTClient client;
-struct gpiod_chip *chip = NULL;;
-struct gpiod_line *in1, *in2, *in3, *in4;
-struct gpiod_line *ena = NULL, *enb = NULL;
 
 volatile int has_new_goal = 0;
 volatile int move_permission = 0;
@@ -39,113 +36,6 @@ int path_len = 0;
 int path_idx = 0;
 Point current_pos = {0, 0};
 int dirA = SOUTH;
-// SIGINT 핸들러
-void handle_sigint(int sig) {
-    if (ena) gpiod_line_set_value(ena, 0);
-    if (enb) gpiod_line_set_value(enb, 0);
-    if (chip) gpiod_chip_close(chip);
-    exit(0);
-}
-
-void motor_stop() {
-    gpiod_line_set_value(ena, 0);
-    gpiod_line_set_value(enb, 0);
-}
-
-void motor_go(int speed, double duration) {
-    gpiod_line_set_value(in1, 0);
-    gpiod_line_set_value(in2, 1);
-    gpiod_line_set_value(in3, 0);
-    gpiod_line_set_value(in4, 1);
-    gpiod_line_set_value(ena, 1);
-    gpiod_line_set_value(enb, 1);
-    usleep(duration * 1e6);
-    motor_stop();
-}
-
-void motor_left(int speed, double duration) {
-    gpiod_line_set_value(in1, 1);
-    gpiod_line_set_value(in2, 0);
-    gpiod_line_set_value(in3, 0);
-    gpiod_line_set_value(in4, 1);
-    gpiod_line_set_value(ena, 1);
-    gpiod_line_set_value(enb, 1);
-    usleep(duration * 1e6);
-    motor_stop();
-}
-
-void motor_right(int speed, double duration) {
-    gpiod_line_set_value(in1, 0);
-    gpiod_line_set_value(in2, 1);
-    gpiod_line_set_value(in3, 1);
-    gpiod_line_set_value(in4, 0);
-    gpiod_line_set_value(ena, 1);
-    gpiod_line_set_value(enb, 1);
-    usleep(duration * 1e6);
-    motor_stop();
-}
-
-void motor_go_precise(struct gpiod_chip *chip, int speed, double total_duration) {
-    double moved_duration = 0.0;
-    const double check_interval = 0.05;  // 장애물 체크 간격 (짧을수록 정밀함)
-
-    // 초기 모터 상태 설정 (한 번만 설정하고 연속 동작)
-    gpiod_line_set_value(in1, 0);
-    gpiod_line_set_value(in2, 1);
-    gpiod_line_set_value(in3, 0);
-    gpiod_line_set_value(in4, 1);
-    gpiod_line_set_value(ena, 1);
-    gpiod_line_set_value(enb, 1);
-
-    while (moved_duration < total_duration) {
-        if (check_obstacle(chip)) {
-            motor_stop();  // 장애물 감지 즉시 정지
-            
-            while (check_obstacle(chip)) {
-                usleep(500000);  // 장애물 체크 주기 (0.5초)
-            }
-
-            printf(" 장애물 제거됨! 이동 재개\n");
-
-            // 장애물이 사라지면 다시 모터 작동 재개
-            gpiod_line_set_value(in1, 0);
-            gpiod_line_set_value(in2, 1);
-            gpiod_line_set_value(in3, 0);
-            gpiod_line_set_value(in4, 1);
-            gpiod_line_set_value(ena, 1);
-            gpiod_line_set_value(enb, 1);
-        }
-
-        // 짧게 대기하며 실제 이동 시간만 누적
-        usleep(check_interval * 1e6);
-        moved_duration += check_interval;
-    }
-
-    motor_stop();  // 목표 시간 도달 시 정지
-    printf("✅ 이동 완료\n");
-}
-
-void rotate_one(int *dir, int turn_dir, int speed) {
-    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * SECONDS_PER_GRID_STEP;
-    motor_go(speed, t0);
-    usleep(100000);
-    if (turn_dir > 0)
-        motor_right(speed, SECONDS_PER_90_DEG_ROTATION);
-    else
-        motor_left(speed, SECONDS_PER_90_DEG_ROTATION);
-    *dir = (*dir + turn_dir + 4) % 4;
-}
-
-void forward_one(Point *pos, int dir, int speed) {
-    printf("➡️ forward_one called at (%d,%d) dir=%d\n", pos->r, pos->c, dir);
-    motor_go_precise(chip, speed, SECONDS_PER_GRID_STEP);
-    switch (dir) {
-        case NORTH: pos->r--; break;
-        case EAST:  pos->c++; break;
-        case SOUTH: pos->r++; break;
-        case WEST:  pos->c--; break;
-    }
-}
 
 // 휴리스틱: 맨해튼 거리
 int heuristic(Point a, Point b) 
