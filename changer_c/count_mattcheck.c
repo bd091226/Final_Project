@@ -1,10 +1,8 @@
 /*
 count_mattcheck.c
 컴파일 :
-gcc -o count_mattcheck \
-    count_mattcheck.c sensor.c \
-    $(pkg-config --cflags --libs libgpiod) \
-    -lpthread -lpaho-mqtt3c -lm
+gcc -o count_mattcheck count_mattcheck.c sensor.c -lgpiod -lpthread -lpaho-mqtt3c -lm
+
 실행 :
 ./count_mattcheck
 */
