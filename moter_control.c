@@ -7,6 +7,7 @@
 #include <MQTTClient.h>
 #include "moter_control.h"
 #include "Bcar_moter.h"
+#include "encoder.h"
 
 const int DIR_VECTORS[4][2] = {
     {-1, 0}, // N
@@ -14,21 +15,6 @@ const int DIR_VECTORS[4][2] = {
     {1, 0},  // S
     {0, -1}  // W
 };
-
-
-
-struct gpiod_chip *chip;
-struct gpiod_line *in1_line;
-struct gpiod_line *in2_line;
-struct gpiod_line *ena_line;
-struct gpiod_line *in3_line;
-struct gpiod_line *in4_line;
-struct gpiod_line *enb_line;
-struct gpiod_line *button_line;
-
-struct gpiod_line *trig_line;
-struct gpiod_line *echo_line;
-struct gpiod_line *servo_line;
 
 static int gpio_initialized = 0;
 
@@ -94,62 +80,81 @@ void setup()
         exit(1);
     }
 
-    in1_line = gpiod_chip_get_line(chip, IN1_PIN);
-    in2_line = gpiod_chip_get_line(chip, IN2_PIN);
-    ena_line = gpiod_chip_get_line(chip, ENA_PIN);
-    in3_line = gpiod_chip_get_line(chip, IN3_PIN);
-    in4_line = gpiod_chip_get_line(chip, IN4_PIN);
-    enb_line = gpiod_chip_get_line(chip, ENB_PIN);
-    button_line = gpiod_chip_get_line(chip, BUTTON_PIN);
+    in1 = gpiod_chip_get_line(chip, IN1_PIN);
+    in2 = gpiod_chip_get_line(chip, IN2_PIN);
+    ena = gpiod_chip_get_line(chip, ENA_PIN);
+    in3 = gpiod_chip_get_line(chip, IN3_PIN);
+    in4 = gpiod_chip_get_line(chip, IN4_PIN);
+    enb = gpiod_chip_get_line(chip, ENB_PIN);
+    line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
+    encA = gpiod_chip_get_line(chip,ENCA);
+    encB = gpiod_chip_get_line(chip,ENCB);
+    
+    
 
     // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
     // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
 
-    if (!in1_line || !in2_line || !ena_line || !in3_line || !in4_line || !enb_line)
+    if (!in1 || !in2 || !ena || !in3 || !in4 || !enb)
     {
         fprintf(stderr, "GPIO line not found\n");
         gpiod_chip_close(chip);
         exit(1);
     }
-    if (gpiod_line_request_output(in1_line, "IN1", 0) < 0) {
+    if (gpiod_line_request_output(in1, "IN1", 0) < 0) {
         perror("GPIO IN1 요청 실패");
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(in2_line, "IN2", 0) < 0) {
+    if (gpiod_line_request_output(in2, "IN2", 0) < 0) {
         perror("GPIO IN2 요청 실패");
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(ena_line, "ENA", 0) < 0) {
+    if (gpiod_line_request_output(ena, "ENA", 0) < 0) {
         perror("GPIO ENA 요청 실패");
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(in3_line, "IN3", 0) < 0) {
+    if (gpiod_line_request_output(in3, "IN3", 0) < 0) {
         perror("GPIO IN3 요청 실패");      
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(in4_line, "IN4", 0) < 0) {
+    if (gpiod_line_request_output(in4, "IN4", 0) < 0) {
         perror("GPIO IN4 요청 실패");
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(enb_line, "ENB", 0) < 0) {
+    if (gpiod_line_request_output(enb, "ENB", 0) < 0) {
         perror("GPIO ENB 요청 실패");
         exit(EXIT_FAILURE);
     }
+    if (gpiod_line_request_output(encA, "ENCA", 0) < 0) {
+        perror("GPIO ENCA 요청 실패");
+        exit(EXIT_FAILURE);
+    }
+    if (gpiod_line_request_output(encB, "ENCB", 0) < 0) {
+        perror("GPIO ENCB 요청 실패");
+        exit(EXIT_FAILURE);
+    }
 
+    line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
+    if (gpiod_line_request_falling_edge_events(line_btn, "BUTTON") < 0) {
+        perror("BUTTON 요청 실패");
+        exit(1);
+    }
     gpio_initialized = 1;  // 초기화 완료 표시
 }
 
 void cleanup()
 {
     if (!gpio_initialized) return;
-    gpiod_line_release(in1_line);
-    gpiod_line_release(in2_line);
-    gpiod_line_release(ena_line);
-    gpiod_line_release(in3_line);
-    gpiod_line_release(in4_line);
-    gpiod_line_release(enb_line);
-    gpiod_line_release(button_line);
+    gpiod_line_release(in1);
+    gpiod_line_release(in2);
+    gpiod_line_release(ena);
+    gpiod_line_release(in3);
+    gpiod_line_release(in4);
+    gpiod_line_release(enb);
+    gpiod_line_release(line_btn);
     gpiod_line_release(servo_line);
+    gpiod_line_release(encA);
+    gpiod_line_release(encB);
     // gpiod_line_release(trig_line);
     // gpiod_line_release(echo_line);
     gpiod_chip_close(chip);
@@ -161,17 +166,8 @@ void cleanup()
 
 void set_speed(int speedA, int speedB)
 {
-    pwm_set_duty(ena_line, speedA);
-    pwm_set_duty(enb_line, speedB);
-}
-
-
-// 현재 시각을 마이크로초 단위로 반환 (초음파 측정용)
-unsigned long get_microseconds()
-{
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (unsigned long)(tv.tv_sec * 1000000 + tv.tv_usec);
+    pwm_set_duty(ena, speedA);
+    pwm_set_duty(enb, speedB);
 }
 
 // 초음파 센서 거리 측정 함수 (단위 cm)
@@ -252,28 +248,29 @@ Direction move_step(Position curr, Position next, Direction current_dir)
     Point p;
     p.r = curr.y; // y → row
     p.c = curr.x; // x → col
+    int dir = current_dir;
 
     switch (diff)
     {
     case 0:
         printf("⬆️ 직진\n");
-        forward_one(&p, current_dir, speed);
+        forward_one(&p, dir);  
         break;
     case 1:
         printf("➡️ 우회전\n");
-        rotate_one(&current_dir, 1, speed);
-        //forward_one(&p, current_dir, speed);
+        rotate_one(&dir, 1);
+        //forward_one(&pos, dir);  
         break;
     case 2:
         printf("🔄 유턴\n");
-        rotate_one(&current_dir, 1, speed);
-        rotate_one(&current_dir, -1, speed);
-        forward_one(&p, current_dir, speed);
+        rotate_one(&dir, 1);
+        rotate_one(&dir, 1);
+        forward_one(&p, dir);  
         break;
     case 3:
         printf("⬅️ 좌회전\n");
-        rotate_one(&current_dir, -1, speed);
-        forward_one(&p, current_dir, speed);
+        rotate_one(&dir, -1);
+        forward_one(&p, dir);  
         break;
     default:
         printf("⚠️ 예외 상황\n");
