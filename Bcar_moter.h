@@ -4,6 +4,7 @@
 #include <gpiod.h>
 #include <MQTTClient.h>
 #include "moter_control.h"
+#include "encoder.h"
 
 // ===== GPIO 핀 정의 =====
 #define CHIP "gpiochip0"
@@ -28,6 +29,7 @@
 #define MAX_PATH  100
 #define MAX_PATH_LENGTH 100
 
+#define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
 #define SECONDS_PER_GRID_STEP       1.1
 #define SECONDS_PER_90_DEG_ROTATION 0.8
 #define PRE_ROTATE_FORWARD_CM       8.0f
@@ -38,19 +40,17 @@ typedef struct {
     int c;
 } Point;
 
-
 typedef struct Node {
     Point pt;
     int g, h, f;
     struct Node* parent;
 } Node;
 
-
 extern Point path[MAX_PATH];
 extern int path_len;
 extern int path_idx;
 extern Point current_pos;
-extern Direction dirB;
+extern int dirB;
 extern volatile int move_permission;
 extern volatile int is_waiting;
 extern volatile int need_replan;
@@ -63,18 +63,11 @@ extern char previous_goal;
 // 방향 벡터
 extern const int DIR_VECTORS[4][2];
 
-// ===== 모터 제어 함수 =====
-void motor_control(int in1_val, int in2_val, int in3_val, int in4_val,
-                   int pwm_a, int pwm_b, double duration_sec);
-void motor_go(int speed, double duration);
-void motor_stop(void);
-void rotate_one(Direction *dir, int turn_dir, int speed);
-void forward_one(Point *pos, int dir, int speed);
-
 // ===== GPIO 제어/초기화 =====
 void delay_ms(int ms);
 extern void delay_sec(double sec);
 void handle_sigint(int sig);
+
 // ===== 경로탐색 A* 알고리즘 =====
 int heuristic(Point a, Point b);
 int is_valid(int r, int c);

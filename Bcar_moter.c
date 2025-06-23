@@ -16,14 +16,14 @@ gcc bcar.c -o bcar -lpaho-mqtt3c -lgpiod
 #include <sys/select.h>
 #include "moter_control.h"
 #include "Bcar_moter.h"
-
+#include "encoder.h"
 
 
 Point path[MAX_PATH];            // 계산된 경로 저장
 int   path_len = 0;              // 경로 길이
 int   path_idx = 0;              // 경로 인덱스
 Point current_pos = {6, 8};      // B 차량 초기 위치
-Direction dirB = N; // B 차량 초기 방향
+int dirB = N;                    // B 차량 초기 방향
 volatile int move_permission = 0;
 volatile int is_waiting = 0;
 volatile int need_replan = 0;
@@ -47,76 +47,6 @@ int grid[ROWS][COLS] = {
 
 void delay_sec(double sec) {
     usleep((unsigned)(sec * 1e6));
-}
-
-void motor_control(int in1_val, int in2_val, int in3_val, int in4_val, int pwm_a, int pwm_b, double duration_sec) {
-    int cycle_us = 2000;
-    int cycles = (duration_sec * 1e6) / cycle_us;
-
-    int on_time_a = (cycle_us * pwm_a) / 100;
-    int off_time_a = cycle_us - on_time_a;
-    int on_time_b = (cycle_us * pwm_b) / 100;
-    int off_time_b = cycle_us - on_time_b;
-
-    gpiod_line_set_value(in1_line, in1_val);
-    gpiod_line_set_value(in2_line, in2_val);
-    gpiod_line_set_value(in3_line, in3_val);
-    gpiod_line_set_value(in4_line, in4_val);
-
-    for (int i = 0; i < cycles; i++) {
-        if (pwm_a > 0) gpiod_line_set_value(ena_line, 1);
-        if (pwm_b > 0) gpiod_line_set_value(enb_line, 1);
-
-        usleep((on_time_a < on_time_b) ? on_time_a : on_time_b);
-
-        if (pwm_a < 100) gpiod_line_set_value(ena_line, 0);
-        if (pwm_b < 100) gpiod_line_set_value(enb_line, 0);
-
-        usleep((off_time_a > off_time_b) ? off_time_a : off_time_b);
-    }
-
-    gpiod_line_set_value(ena_line, 0);
-    gpiod_line_set_value(enb_line, 0);
-}
-
-void motor_go(int speed, double duration) {
-    motor_control(1, 0, 1, 0, speed, speed, duration);
-}
-
-void motor_stop(void) {
-    motor_control(0, 0, 0, 0, 0, 0, 0.1);
-}
-
-static void motor_left(int speed, double duration) {
-    motor_control(0, 1, 1, 0, speed, speed, duration);
-}
-
-static void motor_right(int speed, double duration) {
-    motor_control(1, 0, 0, 1, speed, speed, duration);
-}
-
-void rotate_one(Direction *dir, int turn_dir, int speed) {
-    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0f) * 1.1;
-    motor_go(speed, t0);                 // 회전 전 전진 보정
-    motor_stop();
-    delay_sec(0.1);
-    if (turn_dir > 0)
-        motor_right(speed, SECONDS_PER_90_DEG_ROTATION); // 우회전
-    else
-        motor_left(speed, SECONDS_PER_90_DEG_ROTATION);  // 좌회전
-    motor_stop();
-    *dir = (*dir + turn_dir + 4) % 4;  // 방향 갱신
-}
-
-void forward_one(Point *pos, int dir, int speed) {
-    motor_go(speed, SECONDS_PER_GRID_STEP);                 // 전진
-    motor_stop();
-    switch (dir) {
-        case 0: pos->r--; break;
-        case 1: pos->c++; break;
-        case 2: pos->r++; break;
-        case 3: pos->c--; break;
-    }
 }
 
 // 휴리스틱: 맨해튼 거리

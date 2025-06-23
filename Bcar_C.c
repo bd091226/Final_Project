@@ -1,3 +1,11 @@
+/*
+컴파일 :
+gcc Bcar_C.c Bcar_moter.c moter_control.c encoder.c -o Bcar_C -lpaho-mqtt3c -lgpiod
+실행 :
+./Bcar_C
+
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,6 +17,7 @@
 #include <pthread.h>
 #include "moter_control.h"
 #include "Bcar_moter.h"
+#include "encoder.h"
 
 #define ADDRESS "tcp://broker.hivemq.com:1883"
 // #define CLIENTID "RaspberryPi_Bcar"
@@ -95,8 +104,9 @@ int message_arrived(void *context, char *topicName, int topicLen, MQTTClient_mes
     // }
     if(strcmp(topicName, TOPIC_B_POINT) == 0)
     {
-        forward_one(&current_pos, dirB, 40);
-        rotate_one(&dirB, -1, 40); // 오른쪽으로 회전
+        forward_one(&current_pos, dirB);
+        rotate_one(&dirB, -1);
+        // 오른쪽으로 회전
         starthome();
     }
     if (!strcmp(msg, "move")) 
@@ -140,17 +150,12 @@ void connection_lost(void *context, char *cause)
     printf("[경고] MQTT 연결 끊김: %s\n", cause);
 }
 
-void handle_sigint(int sig) {
-    printf("\n🛑 SIGINT 감지, 프로그램 종료 중...\n");
-    cleanup();  // 리소스 해제 함수
-    exit(0);
-}
 void *button_monitor_thread(void *arg) {
     struct gpiod_line_event event;
 
     while (1) {
-        if (gpiod_line_event_wait(button_line, NULL) == 1) {
-            gpiod_line_event_read(button_line, &event);
+        if (gpiod_line_event_wait(line_btn, NULL) == 1) {
+            gpiod_line_event_read(line_btn, &event);
             if (event.event_type == GPIOD_LINE_EVENT_FALLING_EDGE) {
                 printf("👆 버튼 눌림 (GPIO27)\n");
                 resume_button_pressed = 1;
@@ -165,25 +170,6 @@ int main(void) {
     signal(SIGINT, handle_sigint);
 
     setup();  // GPIO 초기화
-
-    // GPIO 초기화
-    //chip = gpiod_chip_open_by_name(CHIP);
-    in1_line = gpiod_chip_get_line(chip, IN1_PIN);
-    in2_line = gpiod_chip_get_line(chip, IN2_PIN);
-    ena_line = gpiod_chip_get_line(chip, ENA_PIN);
-    in3_line = gpiod_chip_get_line(chip, IN3_PIN);
-    in4_line = gpiod_chip_get_line(chip, IN4_PIN);
-    enb_line = gpiod_chip_get_line(chip, ENB_PIN);
-    button_line = gpiod_chip_get_line(chip, BUTTON_PIN);
-
-    gpiod_line_request_output(in1_line, "IN1", 0);
-    gpiod_line_request_output(in2_line, "IN2", 0);
-    gpiod_line_request_output(ena_line, "ENA", 0);
-    gpiod_line_request_output(in3_line, "IN3", 0);
-    gpiod_line_request_output(in4_line, "IN4", 0);
-    gpiod_line_request_output(enb_line, "ENB", 0);
-    gpiod_line_request_falling_edge_events(button_line, "BUTTON");
-
     // MQTT 설정
     MQTTClient_connectOptions opts = MQTTClient_connectOptions_initializer;
     MQTTClient_create(&client, ADDRESS, CLIENTID, MQTTCLIENT_PERSISTENCE_NONE, NULL);
@@ -276,13 +262,13 @@ int main(void) {
 
                 if (diff < 0) {
                     puts("[B] TURN_LEFT");
-                    rotate_one(&dirB, -1, 60);
+                    rotate_one(&dirB, -1);
                 } else if (diff > 0) {
                     puts("[B] TURN_RIGHT");
-                    rotate_one(&dirB, +1, 60);
+                    rotate_one(&dirB, +1);
                 } else {
                     puts("[B] FORWARD");
-                    forward_one(&current_pos, dirB, 60);
+                    forward_one(&current_pos, dirB);
                     path_idx++;
                 }
 
@@ -296,8 +282,8 @@ int main(void) {
                     if(is_emergency_return)
                     {
                         printf("[긴급복귀] B 지점 도착 완료\n");
-                        rotate_one(&dirB, 1, 40); // 긴급 복귀 후 방향 초기화
-                        forward_one(&current_pos, dirB, 40); // 긴급 복귀 후 전진
+                        rotate_one(&dirB, 1); // 긴급 복귀 후 방향 초기화
+                        forward_one(&current_pos, dirB); // 긴급 복귀 후 전진
                         is_emergency_return=false;
                     }
                     else
