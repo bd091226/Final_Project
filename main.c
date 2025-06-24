@@ -125,7 +125,7 @@ void startpoint()
 {
     char msg[100];
     snprintf(msg, sizeof(msg), "A차 출발지점 도착");
-    motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
+    motor_go(chip, 80, 2.10);  // 모터를 60 속도로 3초간 작동
 
     if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
         printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);

@@ -147,48 +147,6 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
     motor_stop();
     printf("✅ %.2f초 이동 완료\n", total_duration);
 }
-
-//
-// void motor_go(struct gpiod_chip *chip, int speed, double total_duration) {
-//     double moved_duration = 0.0;
-//     const double check_interval = 0.05;  // 장애물 체크 간격 (짧을수록 정밀함)
-
-//     // 초기 모터 상태 설정 (한 번만 설정하고 연속 동작)
-//     gpiod_line_set_value(in1, 0);
-//     gpiod_line_set_value(in2, 1);
-//     gpiod_line_set_value(in3, 0);
-//     gpiod_line_set_value(in4, 1);
-//     gpiod_line_set_value(ena, 1);
-//     gpiod_line_set_value(enb, 1);
-
-//     while (moved_duration < total_duration) {
-//         if (check_obstacle(chip)) {
-//             motor_stop();  // 장애물 감지 즉시 정지
-            
-//             while (check_obstacle(chip)) {
-//                 usleep(500000);  // 장애물 체크 주기 (0.5초)
-//             }
-
-//             printf(" 장애물 제거됨! 이동 재개\n");
-
-//             // 장애물이 사라지면 다시 모터 작동 재개
-//             gpiod_line_set_value(in1, 0);
-//             gpiod_line_set_value(in2, 1);
-//             gpiod_line_set_value(in3, 0);
-//             gpiod_line_set_value(in4, 1);
-//             gpiod_line_set_value(ena, 1);
-//             gpiod_line_set_value(enb, 1);
-//         }
-
-//         // 짧게 대기하며 실제 이동 시간만 누적
-//         usleep(check_interval * 1e6);
-//         moved_duration += check_interval;
-//     }
-
-//     motor_stop();  // 목표 시간 도달 시 정지
-//     printf("✅ 이동 완료\n");
-// }
-
 void motor_left(double duration) {
     safe_set_value(in1, 1, "IN1");
     safe_set_value(in2, 0, "IN2");
@@ -213,7 +171,7 @@ void motor_right(double duration) {
 
 void forward_one(Point *pos, int dir) {
     printf("➡️ forward_one at (%d,%d), dir=%d\n", pos->r, pos->c, dir);
-    motor_go(chip, 100, 3.0);
+    motor_go(chip, 80, 2.10);
     switch (dir) {
         case NORTH: pos->r--; break;
         case EAST:  pos->c++; break;
@@ -223,8 +181,7 @@ void forward_one(Point *pos, int dir) {
 }
 
 void rotate_one(int *dir, int turn_dir) {
-    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
-    motor_go(chip, 100, t0);
+    motor_go(chip, 80, 0.2);
     usleep(100000);
     if (turn_dir > 0)
         motor_right(SECONDS_PER_90_DEG_ROTATION);

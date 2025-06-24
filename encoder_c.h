@@ -7,7 +7,7 @@
 // 모터 동작 타이밍
 #define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
 #define SECONDS_PER_GRID_STEP 2.0
-#define SECONDS_PER_90_DEG_ROTATION 0.81
+#define SECONDS_PER_90_DEG_ROTATION 0.80
 #define PRE_ROTATE_FORWARD_CM 6.0
  
 #define GPIO_CHIP "/dev/gpiochip0"
