@@ -18,9 +18,9 @@
 
 #define CHIPNAME "gpiochip0"
 #define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
-#define SECONDS_PER_GRID_STEP 2.0
-#define SECONDS_PER_90_DEG_ROTATION 0.73
-#define PRE_ROTATE_FORWARD_CM 6.0
+#define SECONDS_PER_GRID_STEP       0.465
+#define SECONDS_PER_90_DEG_ROTATION 0.37
+#define PRE_ROTATE_FORWARD_CM       0.3
 #define SPEED 100
 
 #define IN1   17
@@ -127,36 +127,79 @@ void backward_one(struct Point *pos, int dir) {
 }
 
 void rotate_one(int *dir, int turn_dir) {
-    printf("🔄 rotate_one dir->%d + %d\n", *dir, turn_dir);
-    // 사전 전진
-    long prep = SEC_TO_US((PRE_ROTATE_FORWARD_CM/30.0)*SECONDS_PER_GRID_STEP);
-    struct pollfd prep_pfds[2] = {{gpiod_line_event_get_fd(encA), POLLIN}, {gpiod_line_event_get_fd(encB), POLLIN}};
+    printf("🔄 rotate_one dir=%d turn_dir=%d\n", *dir, turn_dir);
+
+    // 1) 폴링용 fd 및 이벤트 구조체 선언
+    struct pollfd pfds[2] = {
+        { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
+        { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
+    };
     struct gpiod_line_event evt;
-    safe_set_value(in1, 0, "IN1"); safe_set_value(in2, 1, "IN2");
-    safe_set_value(in3, 0, "IN3"); safe_set_value(in4, 1, "IN4");
-    safe_set_value(ena, 1, "ENA"); safe_set_value(enb, 1, "ENB");
-    long prep_end = get_microseconds() + prep;
-    while (get_microseconds() < prep_end) {
-        poll(prep_pfds, 2, 100);
+
+    // 2) 사전 전진: PRE_ROTATE_FORWARD_CM 초만큼
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena,  1, "ENA");
+    safe_set_value(enb,  1, "ENB");
+
+    long start_us = get_microseconds();
+    long end_us   = start_us + SEC_TO_US(PRE_ROTATE_FORWARD_CM);
+    while (get_microseconds() < end_us) {
+        int ret = poll(pfds, 2, 100);
+        if (ret > 0) {
+            if (pfds[0].revents & POLLIN) {
+                gpiod_line_event_read(encA, &evt);
+                countA++;
+            }
+            if (pfds[1].revents & POLLIN) {
+                gpiod_line_event_read(encB, &evt);
+                countB++;
+            }
+        }
     }
 
-    // 90도 회전
-    safe_set_value(ena, 0, "ENA"); safe_set_value(enb, 0, "ENB");
-    usleep(100000);
-    if (turn_dir>0) {
-        // CW
-        safe_set_value(in1, 0, "IN1"); safe_set_value(in2, 1, "IN2");
-        safe_set_value(in3, 1, "IN3"); safe_set_value(in4, 0, "IN4");
-    } else {
-        // CCW
-        safe_set_value(in1, 1, "IN1"); safe_set_value(in2, 0, "IN2");
-        safe_set_value(in3, 0, "IN3"); safe_set_value(in4, 1, "IN4");
-    }
-    safe_set_value(ena, 1, "ENA"); safe_set_value(enb, 1, "ENB");
-    long rot_end = get_microseconds() + SEC_TO_US(SECONDS_PER_90_DEG_ROTATION);
-    while (get_microseconds() < rot_end) { poll(prep_pfds,2,100); }
+    // 3) 완전 정지 & 1초 대기
     motor_stop();
+    usleep(1000000);
 
+    // 4) 제자리 회전 핀 세팅
+    if (turn_dir > 0) {
+        // CW 회전
+        safe_set_value(in1, 0, "IN1");
+        safe_set_value(in2, 1, "IN2");
+        safe_set_value(in3, 1, "IN3");
+        safe_set_value(in4, 0, "IN4");
+    } else {
+        // CCW 회전
+        safe_set_value(in1, 1, "IN1");
+        safe_set_value(in2, 0, "IN2");
+        safe_set_value(in3, 0, "IN3");
+        safe_set_value(in4, 1, "IN4");
+    }
+    safe_set_value(ena,  1, "ENA");
+    safe_set_value(enb,  1, "ENB");
+
+    // 5) 90° 회전: SECONDS_PER_90_DEG_ROTATION 초만큼
+    start_us = get_microseconds();
+    end_us   = start_us + SEC_TO_US(SECONDS_PER_90_DEG_ROTATION);
+    while (get_microseconds() < end_us) {
+        int ret = poll(pfds, 2, 100);
+        if (ret > 0) {
+            if (pfds[0].revents & POLLIN) {
+                gpiod_line_event_read(encA, &evt);
+                countA++;
+            }
+            if (pfds[1].revents & POLLIN) {
+                gpiod_line_event_read(encB, &evt);
+                countB++;
+            }
+        }
+    }
+
+    // 6) 최종 정지 및 방향 상태 업데이트
+    motor_stop();
     *dir = (*dir + turn_dir + 4) % 4;
 }
 
