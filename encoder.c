@@ -171,10 +171,10 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
     double moved = 0.0;
     const double check_interval = 0.05;
 
-    safe_set_value(in1, 1, "IN1");
-    safe_set_value(in2, , "IN2");
-    safe_set_value(in3, 1, "IN3");
-    safe_set_value(in4, 0, "IN4");
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
     safe_set_value(ena, 1, "ENA");
     safe_set_value(enb, 1, "ENB");
 
@@ -214,10 +214,10 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
 }
 
 void motor_left(double duration) {
-    safe_set_value(in1, 0, "IN1");
-    safe_set_value(in2, 1, "IN2");
-    safe_set_value(in3, 1, "IN3");
-    safe_set_value(in4, 0, "IN4");
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
     safe_set_value(ena, 1, "ENA");
     safe_set_value(enb, 1, "ENB");
     
@@ -256,10 +256,10 @@ void motor_left(double duration) {
 }
 
 void motor_right(double duration) {
-    safe_set_value(in1, 1, "IN1");
-    safe_set_value(in2, 0, "IN2");
-    safe_set_value(in3, 0, "IN3");
-    safe_set_value(in4, 1, "IN4");
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
     safe_set_value(ena, 1, "ENA");
     safe_set_value(enb, 1, "ENB");
 
