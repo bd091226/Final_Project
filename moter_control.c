@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <sys/poll.h>
 #include <sys/time.h>
 #include <MQTTClient.h>
 #include "moter_control.h"
@@ -69,81 +70,58 @@ void move_servo(struct gpiod_line *line, int angle)
 
 void setup()
 {
-    if (gpio_initialized) {
-        // 이미 초기화 됐으니 중복 요청 방지
-        return;
-    }
+    if (gpio_initialized) return;
+
+    // 1) 칩 열기
     chip = gpiod_chip_open_by_name(CHIP);
-    if (!chip)
-    {
-        perror("gpiochip0 open failed");
-        exit(1);
-    }
+    if (!chip) { perror("gpiochip0 open failed"); exit(1); }
 
-    in1 = gpiod_chip_get_line(chip, IN1_PIN);
-    in2 = gpiod_chip_get_line(chip, IN2_PIN);
-    ena = gpiod_chip_get_line(chip, ENA_PIN);
-    in3 = gpiod_chip_get_line(chip, IN3_PIN);
-    in4 = gpiod_chip_get_line(chip, IN4_PIN);
-    enb = gpiod_chip_get_line(chip, ENB_PIN);
+    // 2) 모터 제어용 라인 가져오기
+    in1    = gpiod_chip_get_line(chip, IN1_PIN);
+    in2    = gpiod_chip_get_line(chip, IN2_PIN);
+    ena    = gpiod_chip_get_line(chip, ENA_PIN);
+    in3    = gpiod_chip_get_line(chip, IN3_PIN);
+    in4    = gpiod_chip_get_line(chip, IN4_PIN);
+    enb    = gpiod_chip_get_line(chip, ENB_PIN);
     line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
-    encA = gpiod_chip_get_line(chip,ENCA);
-    encB = gpiod_chip_get_line(chip,ENCB);
-    
-    // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
-    // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
+    encA   = gpiod_chip_get_line(chip, ENCA);
+    encB   = gpiod_chip_get_line(chip, ENCB);
 
-    if (!in1 || !in2 || !ena || !in3 || !in4 || !enb)
-    {
-        fprintf(stderr, "GPIO line not found\n");
-        gpiod_chip_close(chip);
+    // 3) 모터 출력 요청
+    if (gpiod_line_request_output(in1, "IN1", 0) < 0 ||
+        gpiod_line_request_output(in2, "IN2", 0) < 0 ||
+        gpiod_line_request_output(ena, "ENA", 0) < 0 ||
+        gpiod_line_request_output(in3, "IN3", 0) < 0 ||
+        gpiod_line_request_output(in4, "IN4", 0) < 0 ||
+        gpiod_line_request_output(enb, "ENB", 0) < 0) {
+        perror("모터 GPIO 요청 실패");
         exit(1);
     }
-    if (gpiod_line_request_output(in1, "IN1", 0) < 0) {
-        perror("GPIO IN1 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(in2, "IN2", 0) < 0) {
-        perror("GPIO IN2 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(ena, "ENA", 0) < 0) {
-        perror("GPIO ENA 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(in3, "IN3", 0) < 0) {
-        perror("GPIO IN3 요청 실패");      
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(in4, "IN4", 0) < 0) {
-        perror("GPIO IN4 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(enb, "ENB", 0) < 0) {
-        perror("GPIO ENB 요청 실패");
-        exit(EXIT_FAILURE);
-    }
+
+    // 4) 버튼 이벤트 요청
     if (gpiod_line_request_falling_edge_events(line_btn, "BUTTON") < 0) {
         perror("BUTTON 요청 실패");
         exit(1);
     }
+
+    // 5) 엔코더 이벤트 요청 (both edges + pull-up)
     if (gpiod_line_request_both_edges_events_flags(
-            encA, "ENCA",
-            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
-        perror("GPIO ENCA 이벤트 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_both_edges_events_flags(
-            encB, "ENCB",
-            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
-        perror("GPIO ENCB 이벤트 요청 실패");
-        exit(EXIT_FAILURE);
+            encA, "ENCA", GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0 ||
+        gpiod_line_request_both_edges_events_flags(
+            encB, "ENCB", GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
+        perror("엔코더 이벤트 요청 실패");
+        exit(1);
     }
 
+    // 6) 엔코더 fd 얻고 poll() 배열 초기화
     fdA = gpiod_line_event_get_fd(encA);
     fdB = gpiod_line_event_get_fd(encB);
+    pfds[0].fd     = fdA;
+    pfds[0].events = POLLIN;
+    pfds[1].fd     = fdB;
+    pfds[1].events = POLLIN;
 
-    gpio_initialized = 1;  // 초기화 완료 표시
+    gpio_initialized = 1;
 }
 
 void cleanup()
