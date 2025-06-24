@@ -90,8 +90,6 @@ void setup()
     encA = gpiod_chip_get_line(chip,ENCA);
     encB = gpiod_chip_get_line(chip,ENCB);
     
-    
-
     // trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
     // echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
 
@@ -125,20 +123,26 @@ void setup()
         perror("GPIO ENB 요청 실패");
         exit(EXIT_FAILURE);
     }
-    if (gpiod_line_request_output(encA, "ENCA", 0) < 0) {
-        perror("GPIO ENCA 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-    if (gpiod_line_request_output(encB, "ENCB", 0) < 0) {
-        perror("GPIO ENCB 요청 실패");
-        exit(EXIT_FAILURE);
-    }
-
-    line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
     if (gpiod_line_request_falling_edge_events(line_btn, "BUTTON") < 0) {
         perror("BUTTON 요청 실패");
         exit(1);
     }
+    if (gpiod_line_request_both_edges_events_flags(
+            encA, "ENCA",
+            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
+        perror("GPIO ENCA 이벤트 요청 실패");
+        exit(EXIT_FAILURE);
+    }
+    if (gpiod_line_request_both_edges_events_flags(
+            encB, "ENCB",
+            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
+        perror("GPIO ENCB 이벤트 요청 실패");
+        exit(EXIT_FAILURE);
+    }
+
+    fdA = gpiod_line_event_get_fd(encA);
+    fdB = gpiod_line_event_get_fd(encB);
+
     gpio_initialized = 1;  // 초기화 완료 표시
 }
 
@@ -158,7 +162,9 @@ void cleanup()
     // gpiod_line_release(trig_line);
     // gpiod_line_release(echo_line);
     gpiod_chip_close(chip);
-    servo_line = NULL;
+    in1 = in2 = ena = in3 = in4 = enb =
+    line_btn = servo_line = encA = encB =
+    trig_line = echo_line = NULL;
     chip = NULL;
 
     gpio_initialized = 0;
