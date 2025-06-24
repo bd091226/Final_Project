@@ -29,11 +29,6 @@
 #define MAX_PATH  100
 #define MAX_PATH_LENGTH 100
 
-#define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
-#define SECONDS_PER_GRID_STEP       1.1
-#define SECONDS_PER_90_DEG_ROTATION 0.8
-#define PRE_ROTATE_FORWARD_CM       8.0f
-
 // ===== 구조체/열거형 정의 =====
 typedef struct {
     int r;
