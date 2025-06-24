@@ -12,8 +12,6 @@
 #include <stdbool.h>
 #include "encoder.h"
 
-#define SPEED 100
-
 
 volatile int running = 1;
 int countA = 0, countB = 0;
@@ -36,88 +34,8 @@ struct gpiod_line *trig_line = NULL;
 struct gpiod_line *echo_line = NULL;
 int fdA, fdB;
 
-int init_gpio(void) {
-    printf("초기화 중...\n");
-
-    chip = gpiod_chip_open_by_name(GPIO_CHIP);
-    if (!chip) {
-        perror("Failed to open gpiochip");
-        return -1;
-    }
-
-    // 모터 제어용 라인 가져오기
-    ena = gpiod_chip_get_line(chip, ENA_PIN);
-    enb = gpiod_chip_get_line(chip, ENB_PIN);
-    in1 = gpiod_chip_get_line(chip, IN1_PIN);
-    in2 = gpiod_chip_get_line(chip, IN2_PIN);
-    in3 = gpiod_chip_get_line(chip, IN3_PIN);
-    in4 = gpiod_chip_get_line(chip, IN4_PIN);
-
-    // 버튼 입력 라인
-    line_btn = gpiod_chip_get_line(chip, BUTTON_PIN);
-
-    // 엔코더 라인
-    encA = gpiod_chip_get_line(chip, ENCA);
-    encB = gpiod_chip_get_line(chip, ENCB);
-
-    if (!ena || !enb || !in1 || !in2 || !in3 || !in4) {
-        perror("모터 제어용 GPIO 라인 가져오기 실패");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    if (!line_btn) {
-        perror("버튼 GPIO 라인 가져오기 실패");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    if (!encA || !encB) {
-        perror("엔코더 GPIO 라인 가져오기 실패");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    // GPIO 출력 요청 (모터 제어)
-    if (gpiod_line_request_output(ena, "ENA", 1) < 0 ||
-        gpiod_line_request_output(enb, "ENB", 1) < 0 ||
-        gpiod_line_request_output(in1, "IN1", 0) < 0 ||
-        gpiod_line_request_output(in2, "IN2", 0) < 0 ||
-        gpiod_line_request_output(in3, "IN3", 0) < 0 ||
-        gpiod_line_request_output(in4, "IN4", 0) < 0) {
-        perror("모터 제어용 GPIO 요청 실패");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    // 버튼 입력 요청
-    if (gpiod_line_request_input(line_btn, "btn_read") < 0) {
-        perror("버튼 GPIO 입력 요청 실패");
-        gpiod_chip_close(chip);
-        return -1;
-    }
-
-    // 엔코더 요청
-    if (gpiod_line_request_both_edges_events_flags(
-            encA, "encA",
-            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
-        perror("encA 요청 실패");
-        return -1;
-    }
-    if (gpiod_line_request_both_edges_events_flags(
-            encB, "encB",
-            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0) {
-        perror("encB 요청 실패");
-        return -1;
-    }
-
-    fdA = gpiod_line_event_get_fd(encA);
-    fdB = gpiod_line_event_get_fd(encB);
-    printf("fdA = %d, fdB = %d\n", fdA, fdB);
-    
-    printf("GPIO 초기화 완료\n");
-    return 0;
-}
+struct pollfd pfds[2];
+struct gpiod_line_event evt;
 
 // 현재 시각을 마이크로초 단위로 반환 (초음파 측정용)
 long get_microseconds() {
@@ -158,6 +76,11 @@ void safe_set_value(struct gpiod_line *line, int value, const char* name) {
     }
 }
 
+void reset_counts(void) {
+    countA = 0;
+    countB = 0;
+}
+
 void motor_stop() {
     safe_set_value(in1, 0, "IN1");
     safe_set_value(in2, 0, "IN2");
@@ -167,80 +90,293 @@ void motor_stop() {
     safe_set_value(enb, 0, "ENB");
 }
 
-void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
-    double moved = 0.0;
-    const double check_interval = 0.05;
+// void motor_go(struct gpiod_chip *chip, int speed, int target_pulses){
+//     (void)chip;  // 현재는 사용 안 함
+//     (void)speed; // PWM 제어 시 사용 예정
 
-    safe_set_value(in1, 0, "IN1");
-    safe_set_value(in2, 1, "IN2");
-    safe_set_value(in3, 0, "IN3");
-    safe_set_value(in4, 1, "IN4");
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
+//     reset_counts();
 
-    struct pollfd pfds[2] = {
-        { .fd = fdA, .events = POLLIN },
-        { .fd = fdB, .events = POLLIN }
-    };
-    struct gpiod_line_event evt;
+//     // 1) 전진 핀 세팅
+//     gpiod_line_set_value(in1, 0);
+//     gpiod_line_set_value(in2, 1);
+//     gpiod_line_set_value(in3, 0);
+//     gpiod_line_set_value(in4, 1);
+//     gpiod_line_set_value(ena, 1);
+//     gpiod_line_set_value(enb, 1);
+
+//     // 2) 목표 펄스 도달할 때까지 poll + 이벤트 읽기
+//     // while (countA < target_pulses && countB < target_pulses) {
+//     //     if (poll(pfds, 2, 100) > 0) {
+//     //         if (pfds[0].revents & POLLIN) { 
+//     //             gpiod_line_event_read(encA, &evt); 
+//     //             countA++; 
+//     //         }
+//     //         if (pfds[1].revents & POLLIN) { 
+//     //             gpiod_line_event_read(encB, &evt); 
+//     //             countB++; 
+//     //         }
+//     //     }
+//     // }
+//     while (countA < target_pulses) {
+//         if (poll(pfds, 2, 100) > 0) {
+//             if (pfds[0].revents & POLLIN) {
+//                 gpiod_line_event_read(encA, &evt);
+//                 countA++;
+//             }
+//             if (pfds[1].revents & POLLIN) {
+//                 gpiod_line_event_read(encB, &evt);
+//                 countB++;
+//             }
+//         }
+//     }
+
+//     // 3) 정지 및 결과 출력
+//     motor_stop();
+//     printf("[GO]     A:%d B:%d\n", countA, countB);
+// }
+
+// void motor_left(struct gpiod_chip *chip, int speed, int target_pulses) {
+//     (void)chip; (void)speed;
+//     reset_counts();
+
+//     // 좌회전 핀 세팅 (CCW)
+//     gpiod_line_set_value(in1, 1);
+//     gpiod_line_set_value(in2, 0);
+//     gpiod_line_set_value(in3, 0);
+//     gpiod_line_set_value(in4, 1);
+//     gpiod_line_set_value(ena,  1);
+//     gpiod_line_set_value(enb,  1);
+
+//     // while (countA < target_pulses && countB < target_pulses) {
+//     //     if (poll(pfds, 2, 100) > 0) {
+//     //         if (pfds[0].revents & POLLIN) { 
+//     //             gpiod_line_event_read(encA, &evt); 
+//     //             countA++; }
+//     //         if (pfds[1].revents & POLLIN) {
+//     //             gpiod_line_event_read(encB, &evt); 
+//     //             countB++; }
+//     //     }
+//     // }
+
+//     while (countA < target_pulses) {
+//         if (poll(pfds, 2, 100) > 0) {
+//             if (pfds[0].revents & POLLIN) {
+//                 gpiod_line_event_read(encA, &evt);
+//                 countA++;
+//             }
+//             if (pfds[1].revents & POLLIN) {
+//                 gpiod_line_event_read(encB, &evt);
+//                 countB++;
+//             }
+//         }
+//     }
     
-     // 3) 타이머 계산
-     long start_us = get_microseconds();
-     long end_us   = start_us + (long)(total_duration * 1e6);
- 
-     // 4) poll 기반 블록킹 루프
-     while (get_microseconds() < end_us) {
-         int ret = poll(pfds, 2, 100);  // 100ms 타임아웃
-         if (ret < 0) {
-             perror("poll error");
-             break;
-         }
-         if (ret == 0) {
-             continue;
-         }
-         if (pfds[0].revents & POLLIN) {
-             gpiod_line_event_read(encA, &evt);
-             countA++;
-         }
-         if (pfds[1].revents & POLLIN) {
-             gpiod_line_event_read(encB, &evt);
-             countB++;
-         }
-     } 
+//     motor_stop();
+//     printf("[LEFT]   A:%d B:%d\n", countA, countB);
+// }
 
-    motor_stop();
-    print_counts("motor_go");
-    printf("✅ %.2f초 이동 완료\n", total_duration);
+// void motor_right(struct gpiod_chip *chip, int speed, int target_pulses) {
+//     (void)chip; (void)speed;
+//     reset_counts();
+
+//     // 우회전 핀 세팅 (CW)
+//     gpiod_line_set_value(in1, 0);
+//     gpiod_line_set_value(in2, 1);
+//     gpiod_line_set_value(in3, 1);
+//     gpiod_line_set_value(in4, 0);
+//     gpiod_line_set_value(ena,  1);
+//     gpiod_line_set_value(enb,  1);
+
+//     while (countA < target_pulses || countB < target_pulses) {
+//         if (poll(pfds, 2, 100) > 0) {
+//             if (pfds[0].revents & POLLIN) {
+//                 gpiod_line_event_read(encA, &evt);
+//                 countA++;
+//             }
+//             if (pfds[1].revents & POLLIN) {
+//                 gpiod_line_event_read(encB, &evt);
+//                 countB++;
+//             }
+//         }
+//     }
+
+//     motor_stop();
+//     printf("[RIGHT]  A:%d B:%d\n", countA, countB);
+// }
+
+// // PWM 기반 좌회전 (CCW)
+// void motor_left(struct gpiod_chip *chip_unused, int speed, int target_pulses) {
+//     (void)chip_unused;
+//     reset_counts();
+
+//     gpiod_line_set_value(in1, 1);
+//     gpiod_line_set_value(in2, 0);
+//     gpiod_line_set_value(in3, 0);
+//     gpiod_line_set_value(in4, 1);
+
+//     int high_us = PWM_PERIOD_US * speed / 100;
+//     int low_us  = PWM_PERIOD_US - high_us;
+
+//     while (countA < target_pulses) {
+//         gpiod_line_set_value(ena, 1);
+//         gpiod_line_set_value(enb, 1);
+//         usleep(high_us);
+
+//         if (poll(pfds, 2, 0) > 0 && (pfds[0].revents|pfds[1].revents)) {
+//             if (pfds[0].revents & POLLIN) { gpiod_line_event_read(encA,&evt); countA++; }
+//             if (pfds[1].revents & POLLIN) { gpiod_line_event_read(encB,&evt); countB++; }
+//         }
+
+//         gpiod_line_set_value(ena, 0);
+//         gpiod_line_set_value(enb, 0);
+//         usleep(low_us);
+
+//         if (poll(pfds, 2, 0) > 0 && (pfds[0].revents|pfds[1].revents)) {
+//             if (pfds[0].revents & POLLIN) { gpiod_line_event_read(encA,&evt); countA++; }
+//             if (pfds[1].revents & POLLIN) { gpiod_line_event_read(encB,&evt); countB++; }
+//         }
+//     }
+
+//     motor_stop();
+//     printf("[LEFT]   A:%d B:%d @%d%%\n", countA, countB, speed);
+// }
+
+// // PWM 기반 우회전 (CW)
+// void motor_right(struct gpiod_chip *chip_unused, int speed, int target_pulses) {
+//     (void)chip_unused;
+//     reset_counts();
+
+//     gpiod_line_set_value(in1, 0);
+//     gpiod_line_set_value(in2, 1);
+//     gpiod_line_set_value(in3, 1);
+//     gpiod_line_set_value(in4, 0);
+
+//     int high_us = PWM_PERIOD_US * speed / 100;
+//     int low_us  = PWM_PERIOD_US - high_us;
+
+//     while (countA < target_pulses) {
+//         gpiod_line_set_value(ena, 1);
+//         gpiod_line_set_value(enb, 1);
+//         usleep(high_us);
+
+//         if (poll(pfds, 2, 0) > 0 && (pfds[0].revents|pfds[1].revents)) {
+//             if (pfds[0].revents & POLLIN) { gpiod_line_event_read(encA,&evt); countA++; }
+//             if (pfds[1].revents & POLLIN) { gpiod_line_event_read(encB,&evt); countB++; }
+//         }
+
+//         gpiod_line_set_value(ena, 0);
+//         gpiod_line_set_value(enb, 0);
+//         usleep(low_us);
+
+//         if (poll(pfds, 2, 0) > 0 && (pfds[0].revents|pfds[1].revents)) {
+//             if (pfds[0].revents & POLLIN) { gpiod_line_event_read(encA,&evt); countA++; }
+//             if (pfds[1].revents & POLLIN) { gpiod_line_event_read(encB,&evt); countB++; }
+//         }
+//     }
+
+//     motor_stop();
+//     printf("[RIGHT]  A:%d B:%d @%d%%\n", countA, countB, speed);
+// }
+
+// 100ms 동안 엔코더 A펄스만 세는 helper
+static int count_encoder_A(int interval_us) {
+    struct pollfd pfd = { .fd = fdA, .events = POLLIN };
+    struct gpiod_line_event e;
+    int cnt = 0;
+    long start = get_microseconds();
+    while (get_microseconds() - start < interval_us) {
+        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+            gpiod_line_event_read(encA, &e);
+            cnt++;
+        }
+    }
+    return cnt;
 }
 
-void motor_left(double duration) {
-    safe_set_value(in1, 1, "IN1");
-    safe_set_value(in2, 0, "IN2");
-    safe_set_value(in3, 0, "IN3");
-    safe_set_value(in4, 1, "IN4");
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
-    
+// 내부: PID 루프 기반 드라이브
+static void pid_drive(int speed_pct, double duration_s,
+                      void (*dir_pins)(void))
+{
+    double integral = 0, last_err = 0;
+    int interval_us = CONTROL_INTERVAL_MS * 1000;
+    // 100% 속도일 때 100ms 기대 펄스 → 비례 배분
+    int target = speed_pct * NOMINAL_PULSES_PER_INTERVAL / 100;
+    long end_t = get_microseconds() + (long)(duration_s * 1e6);
+
+    reset_counts();
+    while (get_microseconds() < end_t) {
+        // 1) 방향 핀 세팅
+        dir_pins();
+
+        // 2) 한 인터벌간 카운트
+        int measured = count_encoder_A(interval_us);
+
+        // 3) PID
+        double err = target - measured;
+        integral += err * (CONTROL_INTERVAL_MS/1000.0);
+        double deriv = (err - last_err)/(CONTROL_INTERVAL_MS/1000.0);
+        last_err = err;
+        double u = KP*err + KI*integral + KD*deriv;
+        int duty = (int)u;
+        if (duty < 0)   duty = 0;
+        if (duty > 100) duty = 100;
+
+        // 4) PWM
+        gpiod_line_set_value(ena, 1);
+        gpiod_line_set_value(enb, 1);
+        usleep(interval_us * duty / 100);
+        gpiod_line_set_value(ena, 0);
+        gpiod_line_set_value(enb, 0);
+        usleep(interval_us * (100-duty) / 100);
+    }
+    motor_stop();
+}
+
+// 방향별 핀 세팅
+static void dir_forward(void) {
+    gpiod_line_set_value(in1,0); gpiod_line_set_value(in2,1);
+    gpiod_line_set_value(in3,0); gpiod_line_set_value(in4,1);
+}
+static void dir_left(void) {
+    gpiod_line_set_value(in1,1); gpiod_line_set_value(in2,0);
+    gpiod_line_set_value(in3,0); gpiod_line_set_value(in4,1);
+}
+static void dir_right(void) {
+    gpiod_line_set_value(in1,0); gpiod_line_set_value(in2,1);
+    gpiod_line_set_value(in3,1); gpiod_line_set_value(in4,0);
+}
+
+// ----------------------------------------------------------------------------
+// 전진: speed_pct% 듀티로 duration_s 초 동안 PWM, 인코더 A/B 펄스 카운트
+// ----------------------------------------------------------------------------
+void motor_go(struct gpiod_chip *chip_unused,
+    int speed_pct,
+    double duration_s)
+{
+    (void)chip_unused;
+    reset_counts();
+    dir_forward();
+
+    // 인코더 fd 준비
     struct pollfd pfds[2] = {
-        { .fd = fdA, .events = POLLIN },
-        { .fd = fdB, .events = POLLIN }
+    { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
+    { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
     };
     struct gpiod_line_event evt;
 
-    // 3) 타이머 계산
-    long start_us = get_microseconds();
-    long end_us   = start_us + (long)(duration * 1e6);
+    long end_us = get_microseconds() + (useconds_t)(duration_s * 1e6);
 
-    // 4) poll 기반 블록킹 루프
     while (get_microseconds() < end_us) {
-        int ret = poll(pfds, 2, 100);
-        if (ret < 0) {
-            perror("poll error");
-            break;
-        }
-        if (ret == 0) {
-            continue;
-        }
+    // 1) 듀티비 계산
+    int high_us = PWM_PERIOD_US * speed_pct / 100;
+    int low_us  = PWM_PERIOD_US - high_us;
+
+    // 2) ON 시간 동안 펄스 측정
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+    long start = get_microseconds();
+    while (get_microseconds() - start < high_us) {
+    if (poll(pfds, 2, 0) > 0) {
         if (pfds[0].revents & POLLIN) {
             gpiod_line_event_read(encA, &evt);
             countA++;
@@ -250,39 +386,14 @@ void motor_left(double duration) {
             countB++;
         }
     }
+    }
 
-    motor_stop();
-    print_counts("motor_left");
-}
-
-void motor_right(double duration) {
-    safe_set_value(in1, 0, "IN1");
-    safe_set_value(in2, 1, "IN2");
-    safe_set_value(in3, 1, "IN3");
-    safe_set_value(in4, 0, "IN4");
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
-
-    struct pollfd pfds[2] = {
-        { .fd = fdA, .events = POLLIN },
-        { .fd = fdB, .events = POLLIN }
-    };
-    struct gpiod_line_event evt;
-
-    // 3) 타이머 계산
-    long start_us = get_microseconds();
-    long end_us   = start_us + (long)(duration * 1e6);
-
-    // 4) poll 기반 블록킹 루프
-    while (get_microseconds() < end_us) {
-        int ret = poll(pfds, 2, 100);
-        if (ret < 0) {
-            perror("poll error");
-            break;
-        }
-        if (ret == 0) {
-            continue;
-        }
+    // 3) OFF 시간 동안 펄스 측정
+    safe_set_value(ena, 0, "ENA");
+    safe_set_value(enb, 0, "ENB");
+    start = get_microseconds();
+    while (get_microseconds() - start < low_us) {
+    if (poll(pfds, 2, 0) > 0) {
         if (pfds[0].revents & POLLIN) {
             gpiod_line_event_read(encA, &evt);
             countA++;
@@ -292,60 +403,159 @@ void motor_right(double duration) {
             countB++;
         }
     }
+    }
+    }
 
     motor_stop();
-    print_counts("motor_right");
+    printf("[GO]     actual A:%d B:%d @%d%% for %.2fs\n",
+    countA, countB, speed_pct, duration_s);
 }
 
+// ----------------------------------------------------------------------------
+// 제자리 좌회전 (CCW) 동일 방식
+// ----------------------------------------------------------------------------
+void motor_left(struct gpiod_chip *chip_unused,
+      int speed_pct,
+      double duration_s)
+{
+    (void)chip_unused;
+    reset_counts();
+    dir_left();
+
+    struct pollfd pfds[2] = {
+    { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
+    { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
+    };
+    struct gpiod_line_event evt;
+
+    long end_us = get_microseconds() + (useconds_t)(duration_s * 1e6);
+
+    while (get_microseconds() < end_us) {
+    int high_us = PWM_PERIOD_US * speed_pct / 100;
+    int low_us  = PWM_PERIOD_US - high_us;
+
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+    long start = get_microseconds();
+    while (get_microseconds() - start < high_us) {
+    if (poll(pfds, 2, 0) > 0) {
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
+    }
+    }
+
+    safe_set_value(ena, 0, "ENA");
+    safe_set_value(enb, 0, "ENB");
+    start = get_microseconds();
+    while (get_microseconds() - start < low_us) {
+    if (poll(pfds, 2, 0) > 0) {
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
+    }
+    }
+    }
+
+    motor_stop();
+    printf("[LEFT]   actual A:%d B:%d @%d%% for %.2fs\n",
+    countA, countB, speed_pct, duration_s);
+}
+
+// ----------------------------------------------------------------------------
+// 제자리 우회전 (CW) 동일 방식
+// ----------------------------------------------------------------------------
+void motor_right(struct gpiod_chip *chip_unused,
+       int speed_pct,
+       double duration_s)
+{
+    (void)chip_unused;
+    reset_counts();
+    dir_right();
+
+    struct pollfd pfds[2] = {
+    { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
+    { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
+    };
+    struct gpiod_line_event evt;
+
+    long end_us = get_microseconds() + (useconds_t)(duration_s * 1e6);
+
+    while (get_microseconds() < end_us) {
+    int high_us = PWM_PERIOD_US * speed_pct / 100;
+    int low_us  = PWM_PERIOD_US - high_us;
+
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+    long start = get_microseconds();
+    while (get_microseconds() - start < high_us) {
+    if (poll(pfds, 2, 0) > 0) {
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
+    }
+    }
+
+    safe_set_value(ena, 0, "ENA");
+    safe_set_value(enb, 0, "ENB");
+    start = get_microseconds();
+    while (get_microseconds() - start < low_us) {
+    if (poll(pfds, 2, 0) > 0) {
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
+    }
+    }
+    }
+
+    motor_stop();
+    printf("[RIGHT]  actual A:%d B:%d @%d%% for %.2fs\n",
+    countA, countB, speed_pct, duration_s);
+}
+
+//————————————————————————————————
+//  forward_one, rotate_one (main에서 호출)
+//————————————————————————————————
 void forward_one(Point *pos, int dir) {
     printf("➡️ forward_one at (%d,%d), dir=%d\n", pos->r, pos->c, dir);
-    motor_go(chip, SPEED, 3.0);
-    switch (dir) {
-        case NORTH: pos->r--; break;
-        case EAST:  pos->c++; break;
-        case SOUTH: pos->r++; break;
-        case WEST:  pos->c--; break;
+    motor_go(NULL, FORWARD_SPEED, FORWARD_SEC);
+    switch(dir) {
+      case NORTH: pos->r--; break;
+      case EAST : pos->c++; break;
+      case SOUTH: pos->r++; break;
+      case WEST : pos->c--; break;
     }
 }
 
 void rotate_one(int *dir, int turn_dir) {
-    double t0 = (PRE_ROTATE_FORWARD_CM / 30.0) * SECONDS_PER_GRID_STEP;
-    motor_go(chip, SPEED, t0);
-    usleep(100000);
+    // 1) 예비 전진
+    motor_go(NULL, ROTATE_SPEED, ROTATE_PRE_FWD_SEC);
+    // 2) 회전
     if (turn_dir > 0)
-        motor_right(SECONDS_PER_90_DEG_ROTATION);
-    else 
-        motor_left(SECONDS_PER_90_DEG_ROTATION);
+        motor_right(NULL, ROTATE_SPEED, ROTATE_90_SEC);
+    else
+        motor_left(NULL, ROTATE_SPEED, ROTATE_90_SEC);
+    // 3) 방향 갱신
     *dir = (*dir + turn_dir + 4) % 4;
 }
 
-void reset_counts() {
-    countA = 0;
-    countB = 0;
-}
-
-void print_counts(const char* tag) {
-    printf("[%s] 엔코더 A: %d, B: %d\n", tag, countA, countB);
-}
-
-void handle_encoder_events() {
-    struct pollfd pfds[2] = {
-        { .fd = fdA, .events = POLLIN },
-        { .fd = fdB, .events = POLLIN }
-    };
-    struct gpiod_line_event event;
-    int ret = poll(pfds, 2, 0);
-
-    if (ret > 0) {
-        if (pfds[0].revents & POLLIN) {
-            gpiod_line_event_read(encA, &event);
-            countA++;
-            printf("encA 이벤트 발생: countA = %d\n", countA);
-        }
-        if (pfds[1].revents & POLLIN) {
-            gpiod_line_event_read(encB, &event);
-            countB++;
-            printf("encB 이벤트 발생: countB = %d\n", countB);
-        }
-    }    
-}
