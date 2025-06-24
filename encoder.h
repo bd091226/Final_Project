@@ -35,6 +35,8 @@ extern struct gpiod_line *encA, *encB;
 extern volatile int running;
 extern int countA, countB;
 int init_gpio();
+extern int fdA;
+extern int fdB;
 // 함수 선언
 void safe_set_value(struct gpiod_line *line, int value, const char* name);
 long get_microseconds(void);

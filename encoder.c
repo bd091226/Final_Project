@@ -171,8 +171,93 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
     double moved = 0.0;
     const double check_interval = 0.05;
 
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, , "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    struct pollfd pfds[2] = {
+        { .fd = fdA, .events = POLLIN },
+        { .fd = fdB, .events = POLLIN }
+    };
+    struct gpiod_line_event evt;
+    
+     // 3) 타이머 계산
+     long start_us = get_microseconds();
+     long end_us   = start_us + (long)(total_duration * 1e6);
+ 
+     // 4) poll 기반 블록킹 루프
+     while (get_microseconds() < end_us) {
+         int ret = poll(pfds, 2, 100);  // 100ms 타임아웃
+         if (ret < 0) {
+             perror("poll error");
+             break;
+         }
+         if (ret == 0) {
+             continue;
+         }
+         if (pfds[0].revents & POLLIN) {
+             gpiod_line_event_read(encA, &evt);
+             countA++;
+         }
+         if (pfds[1].revents & POLLIN) {
+             gpiod_line_event_read(encB, &evt);
+             countB++;
+         }
+     } 
+
+    motor_stop();
+    print_counts("motor_go");
+    printf("✅ %.2f초 이동 완료\n", total_duration);
+}
+
+void motor_left(double duration) {
     safe_set_value(in1, 0, "IN1");
     safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+    
+    struct pollfd pfds[2] = {
+        { .fd = fdA, .events = POLLIN },
+        { .fd = fdB, .events = POLLIN }
+    };
+    struct gpiod_line_event evt;
+
+    // 3) 타이머 계산
+    long start_us = get_microseconds();
+    long end_us   = start_us + (long)(duration * 1e6);
+
+    // 4) poll 기반 블록킹 루프
+    while (get_microseconds() < end_us) {
+        int ret = poll(pfds, 2, 100);
+        if (ret < 0) {
+            perror("poll error");
+            break;
+        }
+        if (ret == 0) {
+            continue;
+        }
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
+    }
+
+    motor_stop();
+    print_counts("motor_left");
+}
+
+void motor_right(double duration) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
     safe_set_value(in3, 0, "IN3");
     safe_set_value(in4, 1, "IN4");
     safe_set_value(ena, 1, "ENA");
@@ -182,57 +267,32 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
         { .fd = fdA, .events = POLLIN },
         { .fd = fdB, .events = POLLIN }
     };
-    struct gpiod_line_event event;
+    struct gpiod_line_event evt;
+
+    // 3) 타이머 계산
     long start_us = get_microseconds();
-    long now_us;
-    
-    while (moved < total_duration) {
-        handle_encoder_events();
-        usleep(SEC_TO_US(check_interval));
-        moved += check_interval;
+    long end_us   = start_us + (long)(duration * 1e6);
+
+    // 4) poll 기반 블록킹 루프
+    while (get_microseconds() < end_us) {
+        int ret = poll(pfds, 2, 100);
+        if (ret < 0) {
+            perror("poll error");
+            break;
+        }
+        if (ret == 0) {
+            continue;
+        }
+        if (pfds[0].revents & POLLIN) {
+            gpiod_line_event_read(encA, &evt);
+            countA++;
+        }
+        if (pfds[1].revents & POLLIN) {
+            gpiod_line_event_read(encB, &evt);
+            countB++;
+        }
     }
 
-    motor_stop();
-    print_counts("motor_go");
-    printf("✅ %.2f초 이동 완료\n", total_duration);
-}
-
-void motor_left(double duration) {
-    safe_set_value(in1, 1, "IN1");
-    safe_set_value(in2, 0, "IN2");
-    safe_set_value(in3, 0, "IN3");
-    safe_set_value(in4, 1, "IN4");
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
-    
-    double elapsed = 0.0;
-    const double interval = 0.1; // 100ms
-
-    while (elapsed < duration) {
-        handle_encoder_events(); // 엔코더 처리
-        usleep(SEC_TO_US(interval));
-        elapsed += interval;
-    }
-    motor_stop();
-    print_counts("motor_left");
-}
-
-void motor_right(double duration) {
-    safe_set_value(in1, 0, "IN1");
-    safe_set_value(in2, 1, "IN2");
-    safe_set_value(in3, 1, "IN3");
-    safe_set_value(in4, 0, "IN4");
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
-
-    double elapsed = 0.0;
-    const double interval = 0.1; // 100ms
-
-    while (elapsed < duration) {
-        handle_encoder_events(); // 엔코더 처리
-        usleep(SEC_TO_US(interval));
-        elapsed += interval;
-    }
     motor_stop();
     print_counts("motor_right");
 }
