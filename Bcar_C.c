@@ -1,6 +1,6 @@
 /*
 컴파일 :
-gcc Bcar_C.c Bcar_moter.c moter_control.c encoder.c -o Bcar_C -lpaho-mqtt3c -lgpiod
+gcc -g Bcar_C.c Bcar_moter.c moter_control.c encoder.c -o Bcar_C -lpaho-mqtt3c -lgpiod
 실행 :
 ./Bcar_C
 
@@ -183,7 +183,7 @@ int main(void) {
     // 구독 시작
     MQTTClient_subscribe(client, CMD_B, QOS);
     MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
-    MQTTClient_subscribe(client, TOPIC_B_DEST, QOS);
+    MQTTClient_subscribe(client, TOPIC_B_DEST_ARRIVED, QOS);
     MQTTClient_subscribe(client, TOPIC_B_POINT, QOS);
     MQTTClient_subscribe(client, TOPIC_B_DANGER, QOS);
 
