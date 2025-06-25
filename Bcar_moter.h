@@ -6,12 +6,8 @@
 #include "moter_control.h"
 #include "encoder.h"
 
-// ===== GPIO 핀 정의 =====
-#define CHIP "gpiochip0"
-
-
 // ===== MQTT 설정 =====
-#define ADDRESS   "tcp://broker.hivemq.com:1883"
+#define ADDRESS   "ws://mqtt.choidaruhan.xyz:8083"
 #define CLIENTID  "Vehicle_B"
 
 #define TOPIC_B               "vehicle/status_B"
