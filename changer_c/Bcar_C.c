@@ -13,7 +13,7 @@ gcc -o Bcar_C Bcar_C.c sensor.c -lpaho-mqtt3c -lgpiod -lpigpio -pthread -lrt
 #include <unistd.h>
 #include "sensor.h"
 
-#define ADDRESS "tcp://broker.hivemq.com:1883"
+#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
 #define CLIENTID "Bcar_Container" // 다른 클라이언트 ID 사용 권장
 #define TOPIC_B_DEST "storage/b_dest" // B차 목적지 토픽
 #define TOPIC_B_DEST_ARRIVED "storage/b_dest_arrived" 

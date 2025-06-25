@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <MQTTClient.h>
 
-#define ADDRESS "tcp://broker.hivemq.com:1883"
+#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
 #define CLIENTID "Storage"
 #define QOS 0
 #define TIMEOUT 10000L
@@ -14,6 +14,7 @@
 #define TOPIC_B "vehicle/status_B"
 #define CMD_A "vehicle/storage/A"
 #define CMD_B "vehicle/storage/B"
+
 
 #define MAX_PATH 20
 #define ROWS 7
