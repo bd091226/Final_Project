@@ -1,7 +1,7 @@
 /*
 count_mattcheck.c
 컴파일 :
-gcc -o count_mattcheck count_mattcheck.c sensor.c -lgpiod -lpthread -lpaho-mqtt3c -lm
+gcc -pthread -o count_mattcheck count_mattcheck.c sensor.c -lgpiod -lpaho-mqtt3c -lm
 
 실행 :
 ./count_mattcheck
@@ -16,7 +16,7 @@ gcc -o count_mattcheck count_mattcheck.c sensor.c -lgpiod -lpthread -lpaho-mqtt3
 #include <MQTTClient.h>
 #include <unistd.h>
 #include <gpiod.h>
-#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
+#define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "RaspberryPi_Container"                        // 다른 클라이언트 ID 사용 권장
 #define TOPIC_COUNT "storage/count"                             // count 값 수신
 #define TOPIC_A_STARTPOINT "storage/startpoint"                 // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
@@ -395,6 +395,9 @@ static void *sensor_thread_fn(void *arg) {
 
 int main(int argc, char *argv[])
 {
+    // 시그널 핸들러 등록
+    signal(SIGINT, handle_sigint);
+
      // 1) 센서 쓰레드 시작
     pthread_t thr;
     pthread_create(&thr, NULL, sensor_thread_fn, NULL);
