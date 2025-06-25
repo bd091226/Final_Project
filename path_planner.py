@@ -1,18 +1,18 @@
 import numpy as np
 import random
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+matplotlib.use('Agg')
 import os
 
 # ------------------------ Map & Q-learning ------------------------
 
 raw_map = [
-    "G00100",
-    "100S01",
-    "00010K",
-    "B00001",
-    "0001W0"
+    "0G00100",
+    "1100S01",
+    "000010K",
+    "B000001",
+    "10001W0"
 ]
 
 ROWS, COLS = len(raw_map), len(raw_map[0])
@@ -29,7 +29,11 @@ def find_position(symbol):
     return None
 
 def state_to_index(state):
-    return state[0] * COLS + state[1]
+    x, y = state
+    if 0 <= x < ROWS and 0 <= y < COLS:
+        return x * COLS + y
+    else:
+        raise IndexError(f"Invalid state index: ({x}, {y})")
 
 def q_learning(start, goal, Q_init=None, episodes=5000, alpha=0.3, gamma=0.9):
     n_states = ROWS * COLS

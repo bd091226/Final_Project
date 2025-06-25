@@ -1,90 +1,93 @@
-from flask import Flask, Response, render_template_string
 from picamera2 import Picamera2
-import numpy as np
 import cv2
-import sys
+import numpy as np
+from flask import Flask, Response
+import time
 
-class MyPiCamera():
-    def __init__(self, width, height):
-        self.cap = Picamera2()
-        self.width = width
-        self.height = height
-        self.is_open = True
-
-        try:
-            self.config = self.cap.create_video_configuration(main={"format":"RGB888","size":(width,height)})
-            self.cap.align_configuration(self.config)
-            self.cap.configure(self.config)
-            self.cap.start()
-        except:
-            self.is_open = False
-
-    def read(self, dst=None):
-        if dst is None:
-            dst = np.empty((self.height, self.width, 3), dtype=np.uint8)
-        if self.is_open:
-            dst = self.cap.capture_array()
-        return self.is_open, dst
-
-    def isOpened(self):
-        return self.is_open
-
-    def release(self):
-        if self.is_open:
-            self.cap.close()
-        self.is_open = False
-
-# Flask 웹 서버 구성
 app = Flask(__name__)
-camera = MyPiCamera(640, 480)
-# QR 코드 감지를 위한 디텍터
-qr_detector = cv2.QRCodeDetector()
 
-# 영상 프레임 생성 (JPEG로 변환)
-def gen_frames():
-    while camera.isOpened():
-        success, frame = camera.read()
-        if not success:
-            break
-        
-         # QR 코드 감지 및 디코딩
-        data, bbox, _ = qr_detector.detectAndDecode(frame)
-        if data:
-            print("Detected QR code:", data)
-            sys.stdout.flush()
-            # 바운딩 박스 그리기 (선택 사항)
-            if bbox is not None:
-                bbox = bbox.astype(int)
-                for i in range(len(bbox[0])):
-                    pt1 = tuple(bbox[0][i])
-                    pt2 = tuple(bbox[0][(i + 1) % len(bbox[0])])
-                    cv2.line(frame, pt1, pt2, (0, 255, 0), 2)
+# 카메라 설정
+picam2 = Picamera2()
+picam2.preview_configuration.main.size = (640, 480)
+picam2.preview_configuration.main.format = "BGR888"
+picam2.configure("preview")
+picam2.start()
+time.sleep(1)  # 카메라 워밍업 시간
 
-        # JPEG로 인코딩
-        _, buffer = cv2.imencode('.jpg', frame)
-        frame_bytes = buffer.tobytes()
+# ArUco 설정
+aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+parameters = cv2.aruco.DetectorParameters()
+
+# 카메라 내부 파라미터 (예시 값, 정확한 값으로 교체 권장)
+camera_matrix = np.array([[600, 0, 320],
+                          [0, 600, 240],
+                          [0, 0, 1]], dtype=np.float32)
+dist_coeffs = np.zeros((5, 1))
+
+def generate_frames():
+    while True:
+        frame = picam2.capture_array()
+        gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+
+        corners, ids, _ = cv2.aruco.detectMarkers(gray, aruco_dict, parameters=parameters)
+
+        if ids is not None:
+            cv2.aruco.drawDetectedMarkers(frame, corners, ids)
+
+            # 각 마커에 대해 pose estimation 수행
+            rvecs, tvecs, _ = cv2.aruco.estimatePoseSingleMarkers(corners, 0.05, camera_matrix, dist_coeffs)
+
+            for i in range(len(ids)):
+                # 각 마커에 좌표축 그리기
+                cv2.drawFrameAxes(frame, camera_matrix, dist_coeffs, rvecs[i], tvecs[i], 0.03)
+
+                # 마커 중심에 ID 표시
+                c = corners[i][0]
+                center_x = int(np.mean(c[:, 0]))
+                center_y = int(np.mean(c[:, 1]))
+                cv2.putText(frame, f"ID:{ids[i][0]}", (center_x, center_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
+                # 각 축 방향 거리 추출 (단위: meter → cm 변환)
+                x_cm = tvecs[i][0][0] * 100
+                y_cm = tvecs[i][0][1] * 100
+                z_cm = tvecs[i][0][2] * 100
+
+                # 전체 거리도 계산 (유클리드 거리)
+                distance_cm = np.linalg.norm(tvecs[i]) * 100
+
+                # 콘솔 출력
+                print(f"ID: {ids[i][0]}, X: {x_cm:.2f}cm, Y: {y_cm:.2f}cm, Z: {z_cm:.2f}cm, 거리: {distance_cm:.2f}cm")
+
+                # 프레임에 거리ㅔㅔ 정보 표시
+                cv2.putText(frame, f"X:{x_cm:.1f} Y:{y_cm:.1f} Z:{z_cm:.1f} cm", (center_x, center_y + 20),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+                #cv2.putText(frame, f"Total: {distance_cm:.1f} cm", (center_x, center_y + 40),cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
+        frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        ret, jpeg = cv2.imencode('.jpg', frame_bgr)
+        if not ret:
+            continue
+
         yield (b'--frame\r\n'
-               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
+               b'Content-Type: image/jpeg\r\n\r\n' + jpeg.tobytes() + b'\r\n')
 
-
-# 메인 페이지 라우트
-@app.route('/')
-def index():
-    return render_template_string('''
-        <html>
-        <head><title>Pi Camera Stream</title></head>
-        <body>
-            <h1>📷 라즈베리파이 카메라 실시간 스트리밍</h1>
-            <img src="/video_feed" width="640" height="480">
-        </body>
-        </html>
-    ''')
-
-# 비디오 피드 라우트
 @app.route('/video_feed')
 def video_feed():
-    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
-# 서버 실행
+@app.route('/')
+def index():
+    return """
+    <html>
+      <head><title>ArUco Pose Stream</title></head>
+      <body>
+        <h1>Pi Camera ArUco 스트리밍 + Pose</h1>
+        <img src="/video_feed" width="640" height="480" />
+      </body>
+    </html>
+    """
+
 if __name__ == '__main__':
+    print("✅ http://<라즈베리파이_IP>:5000 에 접속하세요")
     app.run(host='0.0.0.0', port=5000)
