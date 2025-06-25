@@ -11,17 +11,19 @@
 #include <sys/wait.h>    // waitpid
 #include "acar.h"
 #include <ctype.h>
+#include <math.h>  // fabs
+#include <cjson/cJSON.h>  // 반드시 포함 필요
 #define CHIP_NAME "/dev/gpiochip0"
 
 #define ADDRESS         "tcp://broker.hivemq.com:1883"  // 공용 MQTT 브로커 예시 (변경 가능)
 //#define CLIENTID        "RaspberryPi_A"
 
-#define PYTHON_SCRIPT_PATH  "/home/pi/Final_Project/camera.py"
+#define PYTHON_SCRIPT_PATH  "/home/pi/Final_Project/aruco_stream.py"
 #define PYTHON_BIN          "python3"
 
 
 // MQTT 토픽
-//#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
+#define TOPIC_QR      "storage/gr"     // QR 전달용 (현재 주석 처리됨)
 #define TOPIC_COUNT         "storage/count"       // 버튼 누른 횟수 전송용 토픽
 #define TOPIC_A_STARTPOINT  "storage/startpoint"       // 출발지점 출발 알림용 토픽 ("출발 지점으로 출발")
 #define TOPIC_A_STARTPOINT_ARRIVED  "storage/startpoint_arrived"       // 출발지점 도착 알림용 토픽 ("출발지점 도착")
@@ -37,6 +39,14 @@ struct gpiod_line *line_m2 = NULL;
 struct gpiod_line *line_btn = NULL;
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
+int need_correction = 0;
+float latest_error_x = 0.0f;
+float latest_error_y = 0.0f;
+Point aruco_pos = {0, 0};
+float threshold = 1.0;  // 오차 임계값
+float target_x = 0.0;   // 기준점 x 좌표
+float target_y = 0.0;   // 기준점 y 좌표
+
 MQTTClient client;                     // 전역 MQTTClient 핸들 (콜백 및 함수들이 공유)
 int count = 1;                         // 버튼 누름 횟수
 int max_count =3;                      // 최대 버튼 횟수
@@ -86,6 +96,41 @@ void start_python_script() {
     printf("[INFO] Started Python script (PID=%d)\n", python_pid);
 }
 
+void correct_position(float error_x, float error_y) {
+    while (fabs(error_x) > 0.5 || fabs(error_y) > 0.5) {
+        printf("📌 보정 시작: error_x=%.2f, error_y=%.2f\n", error_x, error_y);
+
+        // Y축 보정 (좌/우 → 오른쪽으로 갈수록 y는 -)
+        if (error_y > 0.5) {
+            printf("↩️ 왼쪽으로 치우침 → 오른쪽으로 보정 이동\n");
+            motor_right(0.05);
+        } else if (error_y < -0.5) {
+            printf("↪️ 오른쪽으로 치우침 → 왼쪽으로 보정 이동\n");
+            motor_left(0.05);
+        }
+
+        // X축 보정 (앞/뒤 → 위로 갈수록 x는 -)
+        if (error_x > 0.5) {
+            printf("⬇️ 아래로 치우침 → 앞으로 보정 이동\n");
+            motor_go(chip, 80, 0.05);
+        } 
+        // else if (error_x < -0.5) {
+        //     printf("⬆️ 위로 치우침 → 뒤로 보정 이동\n");
+        //     move_backward_cm(3.0);
+        // }
+
+        // 최신 ArUco 좌표 다시 수신 (외부에서 global 변수 업데이트 or 재호출 필요)
+        usleep(200000);  // 200ms 대기
+
+        // 다시 업데이트된 에러값 사용
+        error_x = aruco_pos.r;
+        error_y = aruco_pos.c;
+    }
+
+    printf("✅ 위치 오차가 0.5 이내 → 보정 완료\n");
+}
+
+
 //토픽과 메시지를 통신을 한 뒤 완료와 대기 후 결과 코드를 반환하여 
 // 성공인지 실패인지를 구분하는 메시지가 출력되는 함수
 int publish_message(const char *topic, const char *payload) {
@@ -125,7 +170,7 @@ void startpoint()
 {
     char msg[100];
     snprintf(msg, sizeof(msg), "A차 출발지점 도착");
-    motor_go(chip, 80, 2.10);  // 모터를 60 속도로 3초간 작동
+    //motor_go(chip, 80, 2.10);  // 모터를 60 속도로 3초간 작동
 
     if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
         printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);
@@ -138,6 +183,7 @@ void connlost(void *context, char *cause) {
     printf("Connection lost: %s\n", cause);
 }
 
+
 int start_sent = 0;
 /************** */
 //수신하는 함수//
@@ -148,6 +194,9 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     char msg[message->payloadlen + 1];
     memcpy(msg, message->payload, message->payloadlen);
     msg[message->payloadlen] = '\0';
+
+    int id;
+    float x, y, z, dist;
 
     printf("[수신] %s → %s\n", topicName, msg);
 
@@ -212,7 +261,55 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
         printf(">> A 차량 복귀 명령 수신: %c\n", current_goal_char);
 
     }
-    
+    if (strcmp(topicName, "storage/gr") == 0) 
+    {
+        // JSON 파싱
+        cJSON *root = cJSON_Parse(msg);
+        if (root == NULL) 
+        {
+            printf("⚠️ JSON 파싱 실패: %s\n", msg);
+        } 
+        else 
+        {
+            cJSON *id_item = cJSON_GetObjectItem(root, "id");
+            cJSON *x_item = cJSON_GetObjectItem(root, "x");
+            cJSON *y_item = cJSON_GetObjectItem(root, "y");
+            cJSON *z_item = cJSON_GetObjectItem(root, "z");
+            cJSON *dist_item = cJSON_GetObjectItem(root, "distance");
+
+            if (cJSON_IsNumber(id_item) && cJSON_IsNumber(x_item) && cJSON_IsNumber(y_item)) {
+                int id = id_item->valueint;
+                float x = x_item->valuedouble;  // ArUco 기준 차량의 x 좌표
+                float y = y_item->valuedouble;  // ArUco 기준 차량의 y 좌표
+                float z = z_item ? z_item->valuedouble : 0.0;
+                float dist = dist_item ? dist_item->valuedouble : 0.0;
+
+                printf("📥 수신 → ID:%d, X:%.2f, Y:%.2f, Z:%.2f, 거리:%.2fcm\n", id, x, y, z, dist);
+
+                // 차량이 위치하고 있어야 할 목표 위치
+                float goal_x = (float)current_pos.r;
+                float goal_y = (float)current_pos.c;
+
+                // 오차 계산
+                float error_x = x - goal_x;
+                float error_y = y - goal_y;
+
+                // 오차가 0.5보다 크면 보정 필요
+                if (fabs(error_x) > 0.5 || fabs(error_y) > 0.5) {
+                    need_correction = true;
+                    latest_error_x = error_x;
+                    latest_error_y = error_y;
+                    printf("🔧 보정 필요: error_x=%.2f, error_y=%.2f → need_correction=1\n", error_x, error_y);
+                } else {
+                    need_correction = false;
+                    printf("👌 보정 불필요: error_x=%.2f, error_y=%.2f → need_correction=0\n", error_x, error_y);
+                }
+            } else {
+                printf("⚠️ JSON 항목 누락 또는 타입 오류\n");
+            }
+            cJSON_Delete(root);  // 메모리 해제
+        }
+    }
     // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
     MQTTClient_freeMessage(&message);
     MQTTClient_free(topicName);
@@ -248,7 +345,7 @@ int main() {
     init_ultrasonic_pins(chip);
 
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
-    //start_python_script();
+    start_python_script();
 
     // 2) 모터 제어용 GPIO (IN1, IN2)
     line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
@@ -335,6 +432,7 @@ int main() {
     MQTTClient_subscribe(client, TOPIC_A_DEST_ARRIVED, QOS);
     MQTTClient_subscribe(client, TOPIC_SUB, QOS);
     MQTTClient_subscribe(client, TOPIC_A_COMPLETE, QOS);
+    MQTTClient_subscribe(client, TOPIC_QR, QOS);
 
     printf("MQTT connected. Waiting for button press...\n");
     gpiod_line_set_value(line3, 1);  // 초록 LED ON
@@ -438,7 +536,16 @@ int main() {
                 forward_one(&current_pos, dirA);  // 속도 70으로 전진
                 path_idx++;
             }
+            sleep(3);  // 0.1초 대기
 
+            printf("need_correction: %d\n",need_correction);
+            if(need_correction)
+            {
+                correct_position(latest_error_x, latest_error_y);
+                MQTTClient_yield();
+                usleep(200000);  // 보정 후 잠깐 대기
+                need_correction=false;  // 보정 후 플래그 초기화
+            }
             publish_multi_status(path, path_idx, path_len);
             print_grid_with_dir(current_pos, dirA);
         }

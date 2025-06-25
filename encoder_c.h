@@ -59,6 +59,7 @@ extern struct timespec ts;
 
 typedef struct { int r, c; } Point;
 
+
 // 외부에서 접근 가능한 변수
 extern volatile int running;
 extern int countA, countB;
