@@ -5,7 +5,8 @@
 #include <unistd.h>
 #include <MQTTClient.h>
 
-#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
+// #define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
+#define ADDRESS "tcp://broker.hivemq.com:1883"
 #define CLIENTID "Storage"
 #define QOS 0
 #define TIMEOUT 10000L
