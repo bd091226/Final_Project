@@ -19,7 +19,7 @@ gcc -g Bcar_C.c Bcar_moter.c moter_control.c encoder.c -o Bcar_C -lpaho-mqtt3c -
 #include "Bcar_moter.h"
 #include "encoder.h"
 
-#define ADDRESS "tcp://broker.hivemq.com:1883"
+#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
 // #define CLIENTID "RaspberryPi_Bcar"
 #define TOPIC_B_DANGER       "vehicle/emergency/B"
 #define TOPIC_B_DEST "storage/b_dest"
@@ -306,3 +306,47 @@ int main(void) {
 
     return 0;
 }
+
+
+// // 직접 명령 테스트
+// int main() {
+//     // Ctrl+C 처리
+//     signal(SIGINT, handle_sigint);
+
+//     // GPIO, 엔코더 초기화
+//     setup();
+
+//     // 시작 위치와 방향 설정 (예: (0,0), 북쪽)
+//     Point pos = { .r = 0, .c = 0 };
+//     int dir = NORTH;
+
+//     char cmd;
+//     printf("명령어 입력: f(forward), r(rotate right), l(rotate left), q(quit)\n");
+//     while (1) {
+//         printf("> ");
+//         if (scanf(" %c", &cmd) != 1) break;
+
+//         switch (cmd) {
+//             case 'f':
+//                 forward_one(&pos, dir);
+//                 break;
+//             case 'r':
+//                 rotate_one(&dir, +1);
+//                 break;
+//             case 'l':
+//                 rotate_one(&dir, -1);
+//                 break;
+//             case 'q':
+//                 goto exit_loop;
+//             default:
+//                 printf("알 수 없는 명령: %c\n", cmd);
+//         }
+
+//         printf("현재 위치: (%d, %d), 방향: %d\n", pos.r, pos.c, dir);
+//     }
+
+// exit_loop:
+//     // GPIO 정리 후 종료
+//     cleanup();
+//     return 0;
+// }
