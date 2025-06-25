@@ -3,9 +3,10 @@
 
 #include <gpiod.h>
 #include <sys/poll.h> 
+#include <fcntl.h>
 #include "Bcar_moter.h"
 
-#define GPIO_CHIP "gpiochip0"
+#define CHIP "gpiochip0"
 // BCM GPIO 번호 정의 (libgpiod는 gpiochip0 기준 라인번호 = BCM 번호)
 #define IN1_PIN 17
 #define IN2_PIN 18
@@ -37,13 +38,13 @@
 #define DUTY_MAX   100            // PWM 듀티 최대 [%]
 
 // forward_one 에서 사용할 전진 속도·시간
-#define FORWARD_SPEED      70     // [%]
-#define FORWARD_SEC        0.4    // grid 한 칸 당 시간 (s)
+#define FORWARD_SPEED      80     // [%]
+#define FORWARD_SEC        0.86    // grid 한 칸 당 시간 (s)
 
 // rotate_one 에서 사용할 예비 전진 및 회전 속도·시간
-#define ROTATE_SPEED       50     // [%]
-#define ROTATE_PRE_FWD_SEC 0.2    // 회전 전 예비 전진 시간 (s)
-#define ROTATE_90_SEC      0.45   // 90° 회전 시간 (s)
+#define ROTATE_SPEED       100     // [%]
+#define ROTATE_PRE_FWD_SEC 0.1    // 회전 전 예비 전진 시간 (s)
+#define ROTATE_90_SEC      0.62   // 90° 회전 시간 (s)
 
 // 100% 속도일 때 100ms 동안 기대되는 엔코더 A 카운트 (실험으로 결정)
 #define NOMINAL_PULSES_PER_INTERVAL 50
@@ -52,6 +53,9 @@ extern struct gpiod_chip *chip;
 extern struct gpiod_line *ena, *enb, *in1, *in2, *in3, *in4;
 extern struct gpiod_line *line_m1, *line_m2, *line_btn;
 extern struct gpiod_line *encA, *encB;
+extern struct gpiod_line *servo_line;
+extern struct gpiod_line *trig_line, *echo_line;
+
 // 외부에서 접근 가능한 변수
 extern volatile int running;
 extern int countA, countB;
@@ -61,6 +65,7 @@ extern struct gpiod_line_event evt;
 
 // 초기화 및 정리
 int init_gpio(void);
+void test_motor_encoder();
 void encoder_poll_init(void);
 void handle_sigint(int sig);
 void cleanup_and_exit(void);
