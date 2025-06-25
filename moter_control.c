@@ -6,6 +6,7 @@
 #include <sys/poll.h>
 #include <sys/time.h>
 #include <MQTTClient.h>
+#include <fcntl.h>
 #include "moter_control.h"
 #include "Bcar_moter.h"
 #include "encoder.h"
@@ -104,7 +105,20 @@ void setup()
         exit(1);
     }
 
-    // 5) 엔코더 이벤트 요청 (both edges + pull-up)
+    // 5)
+    trig_line = gpiod_chip_get_line(chip, TRIG_PIN);
+    echo_line = gpiod_chip_get_line(chip, ECHO_PIN);
+    if (!trig_line || !echo_line) {
+        perror("초음파 핀 요청 실패");
+        exit(1);
+    }
+    if (gpiod_line_request_output(trig_line, "TRIG", 0) < 0 ||
+        gpiod_line_request_input(echo_line,  "ECHO")      < 0) {
+        perror("초음파 GPIO 요청 실패");
+        exit(1);
+    }
+
+    // 6) 엔코더 이벤트 요청
     if (gpiod_line_request_both_edges_events_flags(
             encA, "ENCA", GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_UP) < 0 ||
         gpiod_line_request_both_edges_events_flags(
@@ -113,9 +127,10 @@ void setup()
         exit(1);
     }
 
-    // 6) 엔코더 fd 얻고 poll() 배열 초기화
+    // 7) encA/B fd, pollfd 설정 및 논블록킹 모드 적용
     fdA = gpiod_line_event_get_fd(encA);
     fdB = gpiod_line_event_get_fd(encB);
+
     pfds[0].fd     = fdA;
     pfds[0].events = POLLIN;
     pfds[1].fd     = fdB;
@@ -137,8 +152,8 @@ void cleanup()
     gpiod_line_release(servo_line);
     gpiod_line_release(encA);
     gpiod_line_release(encB);
-    // gpiod_line_release(trig_line);
-    // gpiod_line_release(echo_line);
+    gpiod_line_release(trig_line);
+    gpiod_line_release(echo_line);
     gpiod_chip_close(chip);
     in1 = in2 = ena = in3 = in4 = enb =
     line_btn = servo_line = encA = encB =
