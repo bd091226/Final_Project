@@ -19,7 +19,7 @@ static const int ECHO_PINS[SENSOR_COUNT]  = {
      4, // phys  7 - Sensor 1 ECHO
     22, // phys 15 - Sensor 2 ECHO
     24, // phys 18 - Sensor 3 ECHO
-    21  // phys 40 - Sensor 4 ECHO
+    16  // phys 36 - Sensor 4 ECHO
 };
 
 static const int SERVO_PINS[SENSOR_COUNT] = {
@@ -34,6 +34,16 @@ static struct gpiod_line  *trig_lines[SENSOR_COUNT];
 static struct gpiod_line  *echo_lines[SENSOR_COUNT];
 static struct gpiod_line  *servo_lines[SENSOR_COUNT];
 static float               last_distances[SENSOR_COUNT];
+
+// SIGINT 핸들러: 바로 정리하고 종료
+void handle_sigint(int signo) {
+    (void)signo;
+    printf("\nSIGINT 받음: GPIO 정리 후 종료합니다.\n");
+    // GPIO 정리
+    sensor_cleanup();  
+    // 프로세스 종료
+    exit(0);
+}
 
 // 마이크로초 타이머
 static long get_us(void) {
@@ -63,25 +73,49 @@ static void measure_echo_once(int idx, float *dist) {
 
 // 내부: 단일 서보 90°→0°
 static void servo_once(int idx) {
-    int p90 = 500 + 90*11, p0 = 500, cycles = 20;
-    // 90°
+    int p0  = 500;  // 0° 보통 1000 µs
+    int p90 = 1500;  // 90° 보통 1500 µs
+    int cycles = 20;
+
+    // ◼ 0° 홈 → 확실히 잡기
     for (int i = 0; i < cycles; i++) {
-        gpiod_line_set_value(servo_lines[idx], 1); usleep(p90);
-        gpiod_line_set_value(servo_lines[idx], 0); usleep(20000 - p90);
+        gpiod_line_set_value(servo_lines[idx], 1);
+        usleep(p0);
+        gpiod_line_set_value(servo_lines[idx], 0);
+        usleep(20000 - p0);
     }
-    sleep(3);
-    // 0°
+    usleep(50000);  // 50 ms 여유
+
+    // ◼ 90° 이동
     for (int i = 0; i < cycles; i++) {
-        gpiod_line_set_value(servo_lines[idx], 1); usleep(p0);
-        gpiod_line_set_value(servo_lines[idx], 0); usleep(20000 - p0);
+        gpiod_line_set_value(servo_lines[idx], 1);
+        usleep(p90);
+        gpiod_line_set_value(servo_lines[idx], 0);
+        usleep(20000 - p90);
     }
+    sleep(1);  // 1 초 대기
+
+    // ◼ 0° 복귀
+    for (int i = 0; i < cycles; i++) {
+        gpiod_line_set_value(servo_lines[idx], 1);
+        usleep(p0);
+        gpiod_line_set_value(servo_lines[idx], 0);
+        usleep(20000 - p0);
+    }
+    printf("서보모터동작함\n");
 }
 
 // 외부: 초기화 (GPIO 요청 등)
 void sensor_init(void) {
     chip = gpiod_chip_open_by_name("gpiochip0");
-    if (!chip) { perror("sensor_init"); exit(1); }
+    if (!chip) {
+        perror("sensor_init: chip_open");
+        exit(1);
+    }
+    printf("DEBUG: chip opened: %p\n", (void*)chip);
+
     for (int i = 0; i < SENSOR_COUNT; i++) {
+        // 1) 라인 가져오기
         trig_lines[i]  = gpiod_chip_get_line(chip, TRIG_PINS[i]);
         echo_lines[i]  = gpiod_chip_get_line(chip, ECHO_PINS[i]);
         servo_lines[i] = gpiod_chip_get_line(chip, SERVO_PINS[i]);
@@ -89,12 +123,23 @@ void sensor_init(void) {
             fprintf(stderr, "sensor_init: line_get 실패 idx=%d\n", i);
             exit(1);
         }
-        gpiod_line_request_output(trig_lines[i], "trig", 0);
-        gpiod_line_request_input_flags(
-            echo_lines[i], "echo",
-            GPIOD_LINE_REQUEST_FLAG_BIAS_PULL_DOWN
-        );
-        gpiod_line_request_output(servo_lines[i], "servo", 0);
+
+        // 2) Trig, Servo → 출력
+        if (gpiod_line_request_output(trig_lines[i],  "trig",  0) < 0) {
+            perror("trig request_output");
+            exit(1);
+        }
+        if (gpiod_line_request_output(servo_lines[i], "servo", 0) < 0) {
+            perror("servo request_output");
+            exit(1);
+        }
+
+        // 3) Echo → 순수 입력으로만 요청
+        if (gpiod_line_request_input(echo_lines[i], "echo") < 0) {
+            perror("echo request_input");
+            exit(1);
+        }
+
         last_distances[i] = -1.0f;
     }
 }
@@ -120,32 +165,32 @@ void sensor_activate_servo(int idx) {
     servo_once(idx);
 }
 
-// 외부: 기존 한 사이클(측정+자동제어)
-void sensor_cycle(void) {
-    float dist;
-    for (int i = 0; i < SENSOR_COUNT; i++) {
-        // Trig
-        gpiod_line_set_value(trig_lines[i], 0);
-        usleep(2);
-        gpiod_line_set_value(trig_lines[i], 1);
-        usleep(10);
-        gpiod_line_set_value(trig_lines[i], 0);
-        // Echo
-        measure_echo_once(i, &dist);
-        // 자동 서보
-        if (dist >= 0.0f) {
-            float diff = (last_distances[i] < 0.0f
-                          ? dist
-                          : fabs(dist - last_distances[i]));
-            if (dist <= 10.0f && diff >= 2.0f) {
-                servo_once(i);
-            }
-            last_distances[i] = dist;
-        }
-        usleep(50000);
-    }
-    usleep(200000);
-}
+// // 외부: 기존 한 사이클(측정+자동제어)
+// void sensor_cycle(void) {
+//     float dist;
+//     for (int i = 0; i < SENSOR_COUNT; i++) {
+//         // Trig
+//         gpiod_line_set_value(trig_lines[i], 0);
+//         usleep(2);
+//         gpiod_line_set_value(trig_lines[i], 1);
+//         usleep(10);
+//         gpiod_line_set_value(trig_lines[i], 0);
+//         // Echo
+//         measure_echo_once(i, &dist);
+//         // 자동 서보
+//         if (dist >= 0.0f) {
+//             float diff = (last_distances[i] < 0.0f
+//                           ? dist
+//                           : fabs(dist - last_distances[i]));
+//             if (dist <= 10.0f && diff >= 2.0f) {
+//                 servo_once(i);
+//             }
+//             last_distances[i] = dist;
+//         }
+//         usleep(50000);
+//     }
+//     usleep(200000);
+// }
 
 // 외부: 정리
 void sensor_cleanup(void) {
@@ -160,6 +205,8 @@ void sensor_monitor_triggers(float dist_thresh,
                              unsigned int loop_delay_us,
                              volatile bool *run_flag)
 {
+    printf("DEBUG: sensor_monitor_triggers 시작\n");
+    fflush(stdout);
     // 이전 거리 저장용 배열
     float prev[SENSOR_COUNT];
     for (int i = 0; i < SENSOR_COUNT; i++) {
@@ -174,25 +221,36 @@ void sensor_monitor_triggers(float dist_thresh,
 
     // 모니터링 루프
     while (*run_flag) {
-        float dists[SENSOR_COUNT];
-        sensor_read_distances(dists);
-
         for (int i = 0; i < SENSOR_COUNT; i++) {
-            float d = dists[i];
-            if (d < 0.0f) continue;  // 측정 실패 무시
+            // 1) Trig 펄스
+            gpiod_line_set_value(trig_lines[i], 0);
+            usleep(2);
+            gpiod_line_set_value(trig_lines[i], 1);
+            usleep(10);
+            gpiod_line_set_value(trig_lines[i], 0);
 
-            float diff = (prev[i] < 0.0f)
-                         ? 0.0f
-                         : fabs(d - prev[i]);
+            // 2) Echo 측정
+            float d;
+            measure_echo_once(i, &d);
 
-            if (d <= dist_thresh && diff >= diff_thresh) {
-                printf("[센서 %d] 거리=%.2fcm Δ=%.2fcm → 조건 충족! 보관함 수량 증가\n",
-                       i+1, d, diff);
-                fflush(stdout);
+            // 3) 결과 출력
+            if (d < 0.0f) {
+                printf("[센서 %d] 읽기 실패\n", i+1);
+            } else {
+                float diff = (prev[i] < 0.0f) ? 0.0f : fabs(d - prev[i]);
+                printf("[센서 %d] 거리=%.2fcm Δ=%.2fcm\n", i+1, d, diff);
+                if (d <= dist_thresh && diff >= diff_thresh) {
+                    // 이건 서보모터 동작 확인용이였음 필요없음
+                    // sensor_activate_servo(i);
+                    printf("[센서 %d] 거리=%.2fcm Δ=%.2fcm → 조건 충족! 보관함 수량 증가\n",
+                        i+1, d, diff);
+                }
+                prev[i] = d;
             }
-            prev[i] = d;
-        }
+            fflush(stdout);
 
-        usleep(loop_delay_us);
+            // 4) 센서 간 대기: loop_delay_us를 4등분
+            usleep(loop_delay_us / SENSOR_COUNT);
+        }
     }
 }
