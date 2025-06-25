@@ -278,59 +278,59 @@ void motor_stop() {
 //     printf("[RIGHT]  A:%d B:%d @%d%%\n", countA, countB, speed);
 // }
 
-// 100ms 동안 엔코더 A펄스만 세는 helper
-static int count_encoder_A(int interval_us) {
-    struct pollfd pfd = { .fd = fdA, .events = POLLIN };
-    struct gpiod_line_event e;
-    int cnt = 0;
-    long start = get_microseconds();
-    while (get_microseconds() - start < interval_us) {
-        if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
-            gpiod_line_event_read(encA, &e);
-            cnt++;
-        }
-    }
-    return cnt;
-}
+// // 100ms 동안 엔코더 A펄스만 세는 helper
+// static int count_encoder_A(int interval_us) {
+//     struct pollfd pfd = { .fd = fdA, .events = POLLIN };
+//     struct gpiod_line_event e;
+//     int cnt = 0;
+//     long start = get_microseconds();
+//     while (get_microseconds() - start < interval_us) {
+//         if (poll(&pfd, 1, 0) > 0 && (pfd.revents & POLLIN)) {
+//             gpiod_line_event_read(encA, &e);
+//             cnt++;
+//         }
+//     }
+//     return cnt;
+// }
 
-// 내부: PID 루프 기반 드라이브
-static void pid_drive(int speed_pct, double duration_s,
-                      void (*dir_pins)(void))
-{
-    double integral = 0, last_err = 0;
-    int interval_us = CONTROL_INTERVAL_MS * 1000;
-    // 100% 속도일 때 100ms 기대 펄스 → 비례 배분
-    int target = speed_pct * NOMINAL_PULSES_PER_INTERVAL / 100;
-    long end_t = get_microseconds() + (long)(duration_s * 1e6);
+// // 내부: PID 루프 기반 드라이브
+// static void pid_drive(int speed_pct, double duration_s,
+//                       void (*dir_pins)(void))
+// {
+//     double integral = 0, last_err = 0;
+//     int interval_us = CONTROL_INTERVAL_MS * 1000;
+//     // 100% 속도일 때 100ms 기대 펄스 → 비례 배분
+//     int target = speed_pct * NOMINAL_PULSES_PER_INTERVAL / 100;
+//     long end_t = get_microseconds() + (long)(duration_s * 1e6);
 
-    reset_counts();
-    while (get_microseconds() < end_t) {
-        // 1) 방향 핀 세팅
-        dir_pins();
+//     reset_counts();
+//     while (get_microseconds() < end_t) {
+//         // 1) 방향 핀 세팅
+//         dir_pins();
 
-        // 2) 한 인터벌간 카운트
-        int measured = count_encoder_A(interval_us);
+//         // 2) 한 인터벌간 카운트
+//         int measured = count_encoder_A(interval_us);
 
-        // 3) PID
-        double err = target - measured;
-        integral += err * (CONTROL_INTERVAL_MS/1000.0);
-        double deriv = (err - last_err)/(CONTROL_INTERVAL_MS/1000.0);
-        last_err = err;
-        double u = KP*err + KI*integral + KD*deriv;
-        int duty = (int)u;
-        if (duty < 0)   duty = 0;
-        if (duty > 100) duty = 100;
+//         // 3) PID
+//         double err = target - measured;
+//         integral += err * (CONTROL_INTERVAL_MS/1000.0);
+//         double deriv = (err - last_err)/(CONTROL_INTERVAL_MS/1000.0);
+//         last_err = err;
+//         double u = KP*err + KI*integral + KD*deriv;
+//         int duty = (int)u;
+//         if (duty < 0)   duty = 0;
+//         if (duty > 100) duty = 100;
 
-        // 4) PWM
-        gpiod_line_set_value(ena, 1);
-        gpiod_line_set_value(enb, 1);
-        usleep(interval_us * duty / 100);
-        gpiod_line_set_value(ena, 0);
-        gpiod_line_set_value(enb, 0);
-        usleep(interval_us * (100-duty) / 100);
-    }
-    motor_stop();
-}
+//         // 4) PWM
+//         gpiod_line_set_value(ena, 1);
+//         gpiod_line_set_value(enb, 1);
+//         usleep(interval_us * duty / 100);
+//         gpiod_line_set_value(ena, 0);
+//         gpiod_line_set_value(enb, 0);
+//         usleep(interval_us * (100-duty) / 100);
+//     }
+//     motor_stop();
+// }
 
 // 방향별 핀 세팅
 static void dir_forward(void) {
@@ -411,9 +411,6 @@ void motor_go(struct gpiod_chip *chip_unused,
     countA, countB, speed_pct, duration_s);
 }
 
-// ----------------------------------------------------------------------------
-// 제자리 좌회전 (CCW) 동일 방식
-// ----------------------------------------------------------------------------
 void motor_left(struct gpiod_chip *chip_unused,
       int speed_pct,
       double duration_s)
@@ -472,9 +469,6 @@ void motor_left(struct gpiod_chip *chip_unused,
     countA, countB, speed_pct, duration_s);
 }
 
-// ----------------------------------------------------------------------------
-// 제자리 우회전 (CW) 동일 방식
-// ----------------------------------------------------------------------------
 void motor_right(struct gpiod_chip *chip_unused,
        int speed_pct,
        double duration_s)
@@ -549,7 +543,7 @@ void forward_one(Point *pos, int dir) {
 
 void rotate_one(int *dir, int turn_dir) {
     // 1) 예비 전진
-    motor_go(NULL, ROTATE_SPEED, ROTATE_PRE_FWD_SEC);
+    motor_go(NULL, FORWARD_SPEED, ROTATE_PRE_FWD_SEC);
     // 2) 회전
     if (turn_dir > 0)
         motor_right(NULL, ROTATE_SPEED, ROTATE_90_SEC);
@@ -558,4 +552,3 @@ void rotate_one(int *dir, int turn_dir) {
     // 3) 방향 갱신
     *dir = (*dir + turn_dir + 4) % 4;
 }
-
