@@ -4,3 +4,6 @@
 [submodule "server"]
 	path = server
 	url = https://github.com/baboyiban/proxy-server
+[submodule "test/mqtt"]
+	path = test/mqtt
+	url = https://github.com/baboyiban/mqtt-example
