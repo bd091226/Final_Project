@@ -169,10 +169,10 @@ def departed_A(conn, cursor, 차량_ID):
               AND start_time IS NULL
         """, (차량_ID,))
 
-        # 3) 차량 LED 상태를 노랑으로 변경
+        # 3) 차량 LED 상태를 하양으로 변경
         cursor.execute("""
             UPDATE vehicle
-            SET led_status = '노랑'
+            SET led_status = '하양'
             WHERE vehicle_id = %s
         """, (차량_ID,))
 
@@ -520,13 +520,6 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
                 WHERE trip_id = %s                  -- 해당 운행 필터
             """, (운행_ID,))
             
-            # 3-2) trip_log 종료 처리: end_time 기록, status 비운행중
-            cursor.execute("""
-                UPDATE trip_log
-                SET end_time = NOW(),
-                    status   = '비운행중'
-                WHERE trip_id = %s
-            """, (운행_ID,))
             conn.commit()
             print(f"✅ B차 운행 종료 처리 완료: 운행_ID={운행_ID}")
         else:
@@ -537,7 +530,7 @@ def end_B(cursor, conn, 차량_ID='B-1001'):
         
 
 # A/B차량 현재 좌표 저장 
-def update_vehicle_coords(cursor, conn, x, y, vehicle_id):
+def update_vehicle_coords(cursor, conn, x, y, 차량_id):
     try:
         # vehicle 테이블 특정 차량 좌표 업데이트
         cursor.execute("""
@@ -546,9 +539,75 @@ def update_vehicle_coords(cursor, conn, x, y, vehicle_id):
                SET coord_x    = %s,  -- 현재 X 좌표
                    coord_y    = %s   -- 현재 Y 좌표
              WHERE vehicle_id = %s   -- 업데이트할 차량의 ID
-        """, (x, y, vehicle_id))
+        """, (x, y, 차량_id))
         conn.commit()
-        print(f"✅ 차량 {vehicle_id} 좌표가 ({x}, {y})로 업데이트되었습니다.")
+        print(f"✅ 차량 {차량_id} 좌표가 ({x}, {y})로 업데이트되었습니다.")
     except Exception as e:
         conn.rollback()
-        print(f"❌ 차량 {vehicle_id} 좌표 업데이트 실패: {e}")
+        print(f"❌ 차량 {차량_id} 좌표 업데이트 실패: {e}")
+        
+# B차량 AI 현재 좌표 저장 
+def update_AI_vehicleB_coords(cursor, conn, x, y, 차량_id='B-1001'):
+    try:
+        # vehicle 테이블 특정 차량 좌표 업데이트
+        cursor.execute("""
+            -- vehicle 테이블 특정 차량 AI_coord_x, AI_coord_y 수정
+            UPDATE vehicle
+               SET coord_x       = NULL,  -- 현재 X 좌표
+                   coord_y       = NULL,  -- 현재 Y 좌표
+                   AI_coord_x    = %s,    -- 현재 X 좌표
+                   AI_coord_y    = %s     -- 현재 Y 좌표
+             WHERE vehicle_id = %s        -- 업데이트할 차량의 ID
+        """, (x, y, 차량_id))
+        conn.commit()
+        print(f"✅ B차량 {차량_id} AI 맵 좌표가 ({x}, {y})로 업데이트되었습니다.")
+    except Exception as e:
+        conn.rollback()
+        print(f"❌ 차량 {차량_id} AI 맵 좌표 업데이트 실패: {e}")
+
+# 임시로 차량, 사유, 직원 id 고정
+# 수정 필요!!
+def emergency(conn, cursor, 운행_id, 차량_id='A-1000', reason=0, employee_id = 4):
+    """
+    - emergency_log 테이블에 긴급 호출 정보 추가
+    - trip_log 테이블에서 해당 운행의 상태를 '긴급호출'로 변경
+    """
+    try:
+        # 서버 시간대를 한국 시간으로 설정
+        cursor.execute("SET time_zone = '+09:00';")
+
+        # 1) emergency_log 테이블에 긴급 호출 정보 삽입
+        cursor.execute(
+            """
+            INSERT INTO emergency_log (
+                trip_id,
+                vehicle_id,
+                call_time,
+                reason,
+                employee_id,
+                needs_confirmation
+            ) VALUES (
+                %s, %s, NOW(), %s, %s, TRUE
+            )
+            """,
+            (운행_id, 차량_id, reason, employee_id)
+        )
+
+        # 2) trip_log 테이블의 상태를 '긴급호출'로 업데이트
+        cursor.execute(
+            """
+            UPDATE trip_log
+            SET status = '긴급호출'
+            WHERE trip_id = %s
+            """,
+            (운행_id,)
+        )
+
+        # 변경 사항 커밋
+        conn.commit()
+        print(f"✅ 긴급 호출 기록 완료: trip_id={운행_id}, vehicle_id={차량_id}, reason={reason}")
+
+    except Exception as e:
+        # 오류 시 롤백 및 메시지 출력
+        conn.rollback()
+        print(f"❌ emergency 처리 실패: {e}")
