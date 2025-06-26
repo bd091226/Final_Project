@@ -80,13 +80,6 @@ int init_gpio(void) {
     return 0;
 }
 
-
-long get_microseconds() {
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-    return ts.tv_sec * 1000000L + ts.tv_nsec / 1000L;
-}
-
 void cleanup_and_exit() {
     motor_stop();
     if (ena) gpiod_line_release(ena);

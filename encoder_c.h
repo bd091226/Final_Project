@@ -27,6 +27,10 @@
 #define GPIO_LINE2      13  // 하양 LED
 #define GPIO_LINE3      6  // 초록 LED
 
+// 14,15,12,16,26,18,22,23,25,24,27 이미 사용중
+// led왼쪽 26, led오른쪽 16
+// 모터 18,22,27,23,25,24 라서 무조건 건들이면 안됨
+
 extern struct gpiod_chip *chip;
 extern struct gpiod_line *ena, *enb, *in1, *in2, *in3, *in4;
 extern struct gpiod_line *line_m1, *line_m2, *line_btn;

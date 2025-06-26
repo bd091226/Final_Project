@@ -1,3 +1,10 @@
+/*
+컴파일 :
+gcc -o main main.c encoder.c sensor_A.c acar.c -lpaho-mqtt3c -lgpiod -lcjson
+실행 ./main
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,22 +41,6 @@
 
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
-
-// GPIO 디바이스 경로 및 핀 번호 (BCM 번호)
-// gpio 이미 사용중인 핀 (이걸 제외해서 define해줘)
-// 14,15,12,16,26,18,22,23,25,24,27
-// led왼쪽 26, led오른쪽 16
-// 모터 18,22,27,23,25,24 라서 무조건 건들이면 안됨
-#define GPIO_CHIP       "/dev/gpiochip0"
-#define GPIO_LINE1      12  // 빨강 LED
-#define GPIO_LINE2      13  // 하양 LED
-#define GPIO_LINE3      6  // 초록 LED
-
-//이거 서보모터 핀을 바꿔야함!!! A차가 이 핀으로 모터를 사용하고 있거든
-// 핀 바꾸면 밑에 주석도 풀어줘 224줄, 245줄
-#define MOTOR_IN1       19  // L298N IN1
-#define MOTOR_IN2       20  // L298N IN2
-#define BUTTON_PIN      17  // 버튼 입력 핀
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
 int need_correction = 0;
