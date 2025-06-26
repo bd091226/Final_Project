@@ -334,16 +334,22 @@ void motor_stop() {
 
 // 방향별 핀 세팅
 static void dir_forward(void) {
-    gpiod_line_set_value(in1,0); gpiod_line_set_value(in2,1);
-    gpiod_line_set_value(in3,0); gpiod_line_set_value(in4,1);
+    gpiod_line_set_value(in1,0);
+    gpiod_line_set_value(in2,1);
+    gpiod_line_set_value(in3,0); 
+    gpiod_line_set_value(in4,1);
 }
 static void dir_left(void) {
-    gpiod_line_set_value(in1,1); gpiod_line_set_value(in2,0);
-    gpiod_line_set_value(in3,0); gpiod_line_set_value(in4,1);
+    gpiod_line_set_value(in1,1); 
+    gpiod_line_set_value(in2,0);
+    gpiod_line_set_value(in3,0); 
+    gpiod_line_set_value(in4,1);
 }
 static void dir_right(void) {
-    gpiod_line_set_value(in1,0); gpiod_line_set_value(in2,1);
-    gpiod_line_set_value(in3,1); gpiod_line_set_value(in4,0);
+    gpiod_line_set_value(in1,0); 
+    gpiod_line_set_value(in2,1);
+    gpiod_line_set_value(in3,1); 
+    gpiod_line_set_value(in4,0);
 }
 
 // ----------------------------------------------------------------------------
@@ -565,4 +571,84 @@ void rotate_one(int *dir, int turn_dir) {
         motor_left(NULL, ROTATE_SPEED, ROTATE_90_SEC);
     // 3) 방향 갱신
     *dir = (*dir + turn_dir + 4) % 4;
+}
+
+// --- 시간 기반 모터 제어 함수들 ---
+// 아루코 마커 보정시 사용 함수
+// 전진
+void aruco_forward_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 후진
+void aruco_backward_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 왼쪽 평행 이동 (좌우 중심 보정)
+void aruco_left_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 오른쪽 평행 이동 (좌우 중심 보정)
+void aruco_right_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 좌회전 (Yaw 보정)
+void rotate_left_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 우회전 (Yaw 보정)
+void rotate_right_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
 }

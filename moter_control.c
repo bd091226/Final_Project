@@ -364,7 +364,7 @@ void Q_current_road(Position current)
 
     MQTTClient_publishMessage(client,TOPIC_B_QROAD, &msg, NULL);
 
-    printf("[송신] %s -> %s\n", payload,topic);
+    printf("[송신] %s -> %s\n", payload,TOPIC_B_QROAD);
 }
 int run_vehicle_path(const char *goal)
 {

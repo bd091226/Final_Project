@@ -5,7 +5,6 @@
 #include <sys/poll.h> 
 #include <fcntl.h>
 #include "Bcar_moter.h"
-
 #define CHIP "gpiochip0"
 // BCM GPIO 번호 정의 (libgpiod는 gpiochip0 기준 라인번호 = BCM 번호)
 #define IN1_PIN 17
@@ -49,6 +48,11 @@
 // 100% 속도일 때 100ms 동안 기대되는 엔코더 A 카운트 (실험으로 결정)
 #define NOMINAL_PULSES_PER_INTERVAL 50
 
+#define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
+#define SECONDS_PER_GRID_STEP 2.0
+#define SECONDS_PER_90_DEG_ROTATION 0.81
+#define PRE_ROTATE_FORWARD_CM 6.0
+
 extern struct gpiod_chip *chip;
 extern struct gpiod_line *ena, *enb, *in1, *in2, *in3, *in4;
 extern struct gpiod_line *line_m1, *line_m2, *line_btn;
@@ -83,25 +87,16 @@ void motor_go(struct gpiod_chip *chip, int speed_pct, double total_duration_s);
 void motor_left(struct gpiod_chip *chip, int speed_pct, double duration_s);
 void motor_right(struct gpiod_chip *chip, int speed_pct, double duration_s);
 
+// 아루코 보정용
+void aruco_forward_time(float sec);
+void aruco_backward_time(float sec);
+void aruco_left_time(float sec);
+void aruco_right_time(float sec);
+void rotate_left_time(float sec);
+void rotate_right_time(float sec);
+
 // 고수준 이동 API
 void forward_one(Point *pos, int dir);
 void rotate_one(int *dir, int turn_dir);
-
-// // 함수 선언
-// void safe_set_value(struct gpiod_line *line, int value, const char* name);
-// long get_microseconds(void);
-// void motor_stop(void);
-// void motor_go(struct gpiod_chip *chip, int speed, int target_pulses);
-// void motor_left(struct gpiod_chip *chip, int speed, int target_pulses);
-// void motor_right(struct gpiod_chip *chip, int speed, int target_pulses);
-// void forward_one(Point *pos, int dir);
-// void rotate_one(int *dir, int turn_dir);
-// void encoder_poll_init(void);
-// void reset_counts();
-// void print_counts(const char* tag);
-// void handle_encoder_events();
-// void cleanup_and_exit();
-// void handle_sigint(int sig);
-// int init_gpio();
 
 #endif // MOTOR_ENCODER_H
