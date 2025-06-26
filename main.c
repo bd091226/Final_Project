@@ -1,3 +1,10 @@
+/*
+컴파일 :
+gcc -o main main.c encoder.c sensor_A.c acar.c -lpaho-mqtt3c -lgpiod -lcjson
+실행 ./main
+*/
+
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +17,7 @@
 #include <sys/types.h>   // pid_t
 #include <sys/wait.h>    // waitpid
 #include "acar.h"
+#include "encoder.h"
 #include <ctype.h>
 #include <math.h>  // fabs
 #include <cjson/cJSON.h>  // 반드시 포함 필요
@@ -185,7 +193,7 @@ void startpoint()
 {
     char msg[100];
     snprintf(msg, sizeof(msg), "A차 출발지점 도착");
-    //motor_go(chip, 80, 2.10);  // 모터를 60 속도로 3초간 작동
+    motor_go(chip,100, SECONDS_PER_GRID_STEP);  // 모터를 60 속도로 3초간 작동
 
     if (publish_message(TOPIC_A_STARTPOINT_ARRIVED, msg) == MQTTCLIENT_SUCCESS) {
         printf("[송신] %s → %s\n", msg, TOPIC_A_STARTPOINT_ARRIVED);
@@ -324,7 +332,6 @@ int main()
     int btn_value, last_btn_value;
     int ret;
 
-    // SIGINT(Ctrl+C) 핸들러 등록
     signal(SIGINT, intHandler);
     
     // 1) GPIO 칩 오픈
@@ -558,44 +565,32 @@ int main()
         const char *target_topic = (current_goal_char == 'A') ? TOPIC_A_COMPLETE_ARRIVED : TOPIC_A_DEST_ARRIVED;
         if (publish_message(target_topic, msg_buffer) == MQTTCLIENT_SUCCESS) 
         {
-            // 컨베이어벨트 작동
-            struct timespec start, now;
-            double duration = 0.4;
-            struct gpiod_line *line_m1, *line_m2;
+            current_goal_char = '\0';
+            last_goal_char = '\0';
+            has_new_goal = 0;
 
-            // 모터 제어용 GPIO (IN1, IN2)
-            line_m1 = gpiod_chip_get_line(chip, MOTOR_IN1);
-            line_m2 = gpiod_chip_get_line(chip, MOTOR_IN2);
-
+            
             // 모터 ON
             gpiod_line_set_value(line_m1, 1);
             gpiod_line_set_value(line_m2, 0);
+            sleep(2000000);  // 2초 동안 동작
 
-            clock_gettime(CLOCK_MONOTONIC, &start);
+            // 동작 정지
+            gpiod_line_set_value(line_m1, 0);
+            gpiod_line_set_value(line_m2, 0);
 
-            while (1) {
-                clock_gettime(CLOCK_MONOTONIC, &now);
-                double elapsed = (now.tv_sec - start.tv_sec) + 
-                                (now.tv_nsec - start.tv_nsec) / 1e9;
-
-                if (elapsed >= duration) {
-                    // 1.5초 경과하면 모터 OFF 후 종료
-                    gpiod_line_set_value(line_m1, 0);
-                    gpiod_line_set_value(line_m2, 0);
-                    break;
-                }
-                usleep(10000);       // CPU 점유 최소화
-            }
             printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
         } 
         else {
             printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
+            current_goal_char = '\0';
+            last_goal_char = '\0';
+            has_new_goal = 0;
         }
-        current_goal_char = '\0';
-        last_goal_char = '\0';
+        
         path_idx = 0;
         path_len = 0;
-        has_new_goal = 0;
+        
         memset(path, 0, sizeof(path));
     }
 

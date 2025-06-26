@@ -6,7 +6,7 @@
 #include <math.h>
 #include <stdbool.h>
 
-
+#define CHIP_NAME "gpiochip0"
 
 const int TRIG_PIN = 5;
 const int ECHO_PIN = 9;

@@ -4,13 +4,13 @@
 #include <gpiod.h>
 #include <stdbool.h>
 
-// 모터 동작 타이밍
 #define SEC_TO_US(sec) ((useconds_t)((sec) * 1e6))
 #define SECONDS_PER_GRID_STEP 2.0
-#define SECONDS_PER_90_DEG_ROTATION 0.80
+#define SECONDS_PER_90_DEG_ROTATION 0.81
 #define PRE_ROTATE_FORWARD_CM 6.0
- 
-#define GPIO_CHIP "/dev/gpiochip0"
+
+#define CHIPNAME "gpiochip0"
+#define GPIO_CHIP CHIPNAME
 #define IN1 22
 #define IN2 27
 #define ENA 18
@@ -27,10 +27,6 @@
 #define GPIO_LINE2      13  // 하양 LED
 #define GPIO_LINE3      6  // 초록 LED
 
-// 14,15,12,16,26,18,22,23,25,24,27 이미 사용중
-// led왼쪽 26, led오른쪽 16
-// 모터 18,22,27,23,25,24 라서 무조건 건들이면 안됨
-
 extern struct gpiod_chip *chip;
 extern struct gpiod_line *ena, *enb, *in1, *in2, *in3, *in4;
 extern struct gpiod_line *line_m1, *line_m2, *line_btn;
@@ -44,31 +40,20 @@ extern struct gpiod_line *line1, *line2, *line3;
 #define IN4_PIN IN4
 #define ENA_PIN ENA
 #define ENB_PIN ENB
+extern struct gpiod_line *in1, *in2, *ena, *in3, *in4, *enb;
+
 
 #define NORTH 0
 #define EAST  1
 #define SOUTH 2
 #define WEST  3
 
-extern struct gpiod_chip *chip;
-extern struct gpiod_line *ena, *enb;
-extern struct gpiod_line *in1, *in2, *in3, *in4;
-extern struct gpiod_line *line1, *line2, *line3;
-extern struct gpiod_line *encA, *encB;
-extern struct gpiod_line *line_m1;  // 컨베이어 모터용
-extern struct gpiod_line *line_m2;  // 컨베이어 모터용
-extern struct gpiod_line *line_btn; // 버튼용
-extern struct timespec ts;
-
-
 typedef struct { int r, c; } Point;
-
 
 // 외부에서 접근 가능한 변수
 extern volatile int running;
 extern int countA, countB;
 int init_gpio();
-
 // 함수 선언
 long get_microseconds(void);
 void motor_stop();
@@ -77,14 +62,6 @@ void motor_left(double duration);
 void motor_right(double duration);
 void forward_one(Point *pos, int dir);
 void rotate_one(int *dir, int turn_dir);
-// 아루코 보정용
-void aruco_forward_time(float sec);
-void aruco_backward_time(float sec);
-void aruco_left_time(float sec);
-void aruco_right_time(float sec);
-void rotate_left_time(float sec);
-void rotate_right_time(float sec);
-
 void reset_counts();
 void print_counts(const char* tag);
 void handle_encoder_events();
