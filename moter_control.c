@@ -22,55 +22,6 @@ const int DIR_VECTORS[4][2] = {
 
 static int gpio_initialized = 0;
 
-void delay_ms(int ms)
-{
-    usleep(ms * 1000);
-}
-void pwm_set_duty(struct gpiod_line *line, int duty_percent)
-{
-    if (duty_percent > 0)
-        gpiod_line_set_value(line, 1);
-    else
-        gpiod_line_set_value(line, 0);
-}
-// PWM 생성 함수 (서보모터 제어)
-void generate_pwm(struct gpiod_line *line, int pulse_width_us, int duration_ms) {
-    int cycles = duration_ms / 20;  // 20ms 기준(50Hz)
-    for (int i = 0; i < cycles; i++) {
-        gpiod_line_set_value(line, 1);
-        usleep(pulse_width_us);
-        gpiod_line_set_value(line, 0);
-        usleep(20000 - pulse_width_us);
-    }
-}
-int angle_to_pulse(int angle)
-{
-    // -90 ~ +90 범위를 0 ~ 180으로 변환
-    if (angle < -90)
-        angle = -90;
-    if (angle > 90)
-        angle = 90;
-    
-    int mapped_angle = angle + 90; // -90 -> 0, 0 -> 90, 90 -> 180
-    
-    return 500 + (mapped_angle * 2000 / 180); // 500~2500us
-}
-
-void move_servo(struct gpiod_line *line, int angle)
-{
-    int high_time = angle_to_pulse(angle);
-    int low_time = PERIOD_MS * 1000 - high_time;
-
-    // 10회 반복 (약 0.2초 유지)
-    for (int i = 0; i < 10; ++i)
-    {
-        gpiod_line_set_value(line, 1); // HIGH
-        usleep(high_time);
-        gpiod_line_set_value(line, 0); // LOW
-        usleep(low_time);
-    }
-}
-
 void setup()
 {
     if (gpio_initialized) return;
@@ -141,6 +92,135 @@ void setup()
     gpio_initialized = 1;
 }
 
+void delay_ms(int ms)
+{
+    usleep(ms * 1000);
+}
+void pwm_set_duty(struct gpiod_line *line, int duty_percent)
+{
+    if (duty_percent > 0)
+        gpiod_line_set_value(line, 1);
+    else
+        gpiod_line_set_value(line, 0);
+}
+// PWM 생성 함수 (서보모터 제어)
+void generate_pwm(struct gpiod_line *line, int pulse_width_us, int duration_ms) {
+    int cycles = duration_ms / 20;  // 20ms 기준(50Hz)
+    for (int i = 0; i < cycles; i++) {
+        gpiod_line_set_value(line, 1);
+        usleep(pulse_width_us);
+        gpiod_line_set_value(line, 0);
+        usleep(20000 - pulse_width_us);
+    }
+}
+int angle_to_pulse(int angle)
+{
+    // -90 ~ +90 범위를 0 ~ 180으로 변환
+    if (angle < -90)
+        angle = -90;
+    if (angle > 90)
+        angle = 90;
+    
+    int mapped_angle = angle + 90; // -90 -> 0, 0 -> 90, 90 -> 180
+    
+    return 500 + (mapped_angle * 2000 / 180); // 500~2500us
+}
+
+void move_servo(struct gpiod_line *line, int angle)
+{
+    int high_time = angle_to_pulse(angle);
+    int low_time = PERIOD_MS * 1000 - high_time;
+
+    // 10회 반복 (약 0.2초 유지)
+    for (int i = 0; i < 10; ++i)
+    {
+        gpiod_line_set_value(line, 1); // HIGH
+        usleep(high_time);
+        gpiod_line_set_value(line, 0); // LOW
+        usleep(low_time);
+    }
+}
+
+void set_speed(int speedA, int speedB)
+{
+    pwm_set_duty(ena, speedA);
+    pwm_set_duty(enb, speedB);
+}
+
+// 초음파 센서 거리 측정 함수 (단위 cm)
+float measure_distance(struct gpiod_chip *chip)
+{
+    struct gpiod_line *trig = gpiod_chip_get_line(chip, TRIG_PIN);
+    struct gpiod_line *echo = gpiod_chip_get_line(chip, ECHO_PIN);
+
+    gpiod_line_request_output(trig, "trig", 0);
+    gpiod_line_request_input(echo, "echo");
+
+    // 트리거 펄스
+    gpiod_line_set_value(trig, 0);
+    usleep(2);
+    gpiod_line_set_value(trig, 1);
+    usleep(10);
+    gpiod_line_set_value(trig, 0);
+
+    long start_time = 0, end_time = 0, current_time;
+
+    // Echo HIGH 대기 (타임아웃 30ms)
+    long timeout = get_microseconds() + 30000;
+    while (1) {
+        current_time = get_microseconds();
+        if (current_time > timeout) {
+            gpiod_line_release(trig);
+            gpiod_line_release(echo);
+            return -1;  // 타임아웃 시 -1 반환
+        }
+        if (gpiod_line_get_value(echo) == 1) {
+            start_time = current_time;
+            break;
+        }
+    }
+
+    // Echo LOW 대기 (타임아웃 30ms)
+    timeout = get_microseconds() + 30000;
+    while (1) {
+        current_time = get_microseconds();
+        if (current_time > timeout) {
+            gpiod_line_release(trig);
+            gpiod_line_release(echo);
+            return -1;  // 타임아웃 시 -1 반환
+        }
+        if (gpiod_line_get_value(echo) == 0) {
+            end_time = current_time;
+            break;
+        }
+    }
+
+    gpiod_line_release(trig);
+    gpiod_line_release(echo);
+
+    float dist = (end_time - start_time) * 0.0343 / 2.0;
+    return dist;
+}
+
+// 초음파 장애물 확인
+bool check_obstacle(struct gpiod_chip *chip)
+{
+    float distance = measure_distance(chip);
+
+    if (distance < 0)
+    {
+        return false; // 타임아웃 시 장애물로 인식하지 않음
+    }
+
+    if (distance <= 8.0 && distance > 0.1)
+    {
+        printf(" 장애물 감지! 이동 중지! 거리: %.2f cm\n", distance);
+        return true;
+    }
+    
+    return false; // 장애물이 없으면 false 반환
+}
+
 void cleanup()
 {
     if (!gpio_initialized) return;
@@ -163,61 +243,6 @@ void cleanup()
     chip = NULL;
 
     gpio_initialized = 0;
-}
-
-void set_speed(int speedA, int speedB)
-{
-    pwm_set_duty(ena, speedA);
-    pwm_set_duty(enb, speedB);
-}
-
-// 초음파 센서 거리 측정 함수 (단위 cm)
-float get_distance_cm()
-{
-    // 트리거 핀 LOW 유지 2us 이상
-    gpiod_line_set_value(trig_line, 0);
-    usleep(2);
-
-    // 트리거 핀 HIGH 10us 펄스 출력
-    gpiod_line_set_value(trig_line, 1);
-    usleep(10);
-    gpiod_line_set_value(trig_line, 0);
-
-    // 에코 핀이 HIGH 되는 시간 측정
-    unsigned long start_time = 0;
-    unsigned long end_time = 0;
-
-    // 에코 핀이 HIGH 되길 기다림 (timeout 200ms)
-    unsigned long timeout = get_microseconds() + 200000;
-    while (gpiod_line_get_value(echo_line) == 0)
-    {
-        if (get_microseconds() > timeout)
-        {
-            fprintf(stderr, "Echo pulse start timeout\n");
-            return -1.0;
-        }
-    }
-    start_time = get_microseconds();
-
-    // 에코 핀이 LOW 될 때까지 대기 (timeout 200ms)
-    timeout = get_microseconds() + 200000;
-    while (gpiod_line_get_value(echo_line) == 1)
-    {
-        if (get_microseconds() > timeout)
-        {
-            fprintf(stderr, "Echo pulse end timeout\n");
-            return -1.0;
-        }
-    }
-    end_time = get_microseconds();
-
-    // 펄스 길이(us)
-    unsigned long pulse_duration = end_time - start_time;
-
-    // 음속 34300 cm/s, 거리 = (시간 * 속도) / 2
-    float distance = (pulse_duration * 0.0343) / 2.0;
-
-    return distance;
 }
 
 Direction move_step(Position curr, Position next, Direction current_dir)
@@ -373,7 +398,6 @@ int run_vehicle_path(const char *goal)
         current_dir = move_step(path[i], path[i + 1], current_dir);
         Position current = path[i];
         Q_current_road(current);
-
 
         // while (1)
         // {

@@ -52,6 +52,8 @@ void setup();
 void cleanup();
 void set_speed(int speedA, int speedB);
 float get_distance_cm();
+bool check_obstacle(struct gpiod_chip *chip);
+float measure_distance(struct gpiod_chip *chip);
 
 Direction move_step(Position curr, Position next, Direction current_dir);
 int load_path_from_file(const char *filename, Position path[]);
