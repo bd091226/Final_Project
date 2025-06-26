@@ -1,5 +1,5 @@
-[submodule "flutter_app"]
-	path = flutter_app
+[submodule "app"]
+	path = app
 	url = https://github.com/baboyiban/flutter_app
 [submodule "server"]
 	path = server
@@ -7,3 +7,6 @@
 [submodule "test/mqtt"]
 	path = test/mqtt
 	url = https://github.com/baboyiban/mqtt-example
+[submodule "app"]
+	path = app
+	url = https://github.com/baboyiban/flutter_app
