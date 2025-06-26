@@ -349,66 +349,80 @@ static void dir_right(void) {
 // ----------------------------------------------------------------------------
 // 전진: speed_pct% 듀티로 duration_s 초 동안 PWM, 인코더 A/B 펄스 카운트
 // ----------------------------------------------------------------------------
-void motor_go(struct gpiod_chip *chip_unused,
-    int speed_pct,
-    double duration_s)
-{
-    (void)chip_unused;
+void motor_go(struct gpiod_chip *chip, int speed_pct, double total_duration_s) {
     reset_counts();
     dir_forward();
 
-    // 인코더 fd 준비
     struct pollfd pfds[2] = {
-    { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
-    { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
+        { .fd = gpiod_line_event_get_fd(encA), .events = POLLIN },
+        { .fd = gpiod_line_event_get_fd(encB), .events = POLLIN }
     };
     struct gpiod_line_event evt;
 
-    long end_us = get_microseconds() + (useconds_t)(duration_s * 1e6);
+    const double check_interval = 0.05;
+    double moved_duration = 0.0;
+    long interval_us = (long)(check_interval * 1e6);
 
-    while (get_microseconds() < end_us) {
-    // 1) 듀티비 계산
-    int high_us = PWM_PERIOD_US * speed_pct / 100;
-    int low_us  = PWM_PERIOD_US - high_us;
+    while (moved_duration < total_duration_s) {
+        // 장애물 감지 시 멈춤
+        if (check_obstacle(chip)) {
+            motor_stop();
+            printf("⛔ 장애물 감지됨, 대기 중...\n");
 
-    // 2) ON 시간 동안 펄스 측정
-    safe_set_value(ena, 1, "ENA");
-    safe_set_value(enb, 1, "ENB");
-    long start = get_microseconds();
-    while (get_microseconds() - start < high_us) {
-    if (poll(pfds, 2, 0) > 0) {
-        if (pfds[0].revents & POLLIN) {
-            gpiod_line_event_read(encA, &evt);
-            countA++;
-        }
-        if (pfds[1].revents & POLLIN) {
-            gpiod_line_event_read(encB, &evt);
-            countB++;
-        }
-    }
-    }
+            while (check_obstacle(chip)) {
+                usleep(500000); // 0.5초 간격 재확인
+            }
 
-    // 3) OFF 시간 동안 펄스 측정
-    safe_set_value(ena, 0, "ENA");
-    safe_set_value(enb, 0, "ENB");
-    start = get_microseconds();
-    while (get_microseconds() - start < low_us) {
-    if (poll(pfds, 2, 0) > 0) {
-        if (pfds[0].revents & POLLIN) {
-            gpiod_line_event_read(encA, &evt);
-            countA++;
+            printf("✅ 장애물 제거됨! 이동 재개\n");
+            dir_forward();
         }
-        if (pfds[1].revents & POLLIN) {
-            gpiod_line_event_read(encB, &evt);
-            countB++;
+
+        long sub_end = get_microseconds() + interval_us;
+        while (get_microseconds() < sub_end) {
+            int high_us = PWM_PERIOD_US * speed_pct / 100;
+            int low_us  = PWM_PERIOD_US - high_us;
+
+            // ON 구간
+            safe_set_value(ena, 1, "ENA");
+            safe_set_value(enb, 1, "ENB");
+            long start = get_microseconds();
+            while (get_microseconds() - start < high_us) {
+                if (poll(pfds, 2, 0) > 0) {
+                    if (pfds[0].revents & POLLIN) {
+                        gpiod_line_event_read(encA, &evt);
+                        countA++;
+                    }
+                    if (pfds[1].revents & POLLIN) {
+                        gpiod_line_event_read(encB, &evt);
+                        countB++;
+                    }
+                }
+            }
+
+            // OFF 구간
+            safe_set_value(ena, 0, "ENA");
+            safe_set_value(enb, 0, "ENB");
+            start = get_microseconds();
+            while (get_microseconds() - start < low_us) {
+                if (poll(pfds, 2, 0) > 0) {
+                    if (pfds[0].revents & POLLIN) {
+                        gpiod_line_event_read(encA, &evt);
+                        countA++;
+                    }
+                    if (pfds[1].revents & POLLIN) {
+                        gpiod_line_event_read(encB, &evt);
+                        countB++;
+                    }
+                }
+            }
         }
-    }
-    }
+
+        moved_duration += check_interval;
     }
 
     motor_stop();
     printf("[GO]     actual A:%d B:%d @%d%% for %.2fs\n",
-    countA, countB, speed_pct, duration_s);
+           countA, countB, speed_pct, total_duration_s);
 }
 
 void motor_left(struct gpiod_chip *chip_unused,

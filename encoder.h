@@ -79,7 +79,7 @@ void print_counts(const char* tag);
 void handle_encoder_events(void);
 
 // 저수준 모터 제어
-void motor_go(struct gpiod_chip *chip, int speed_pct, double duration_s);
+void motor_go(struct gpiod_chip *chip, int speed_pct, double total_duration_s);
 void motor_left(struct gpiod_chip *chip, int speed_pct, double duration_s);
 void motor_right(struct gpiod_chip *chip, int speed_pct, double duration_s);
 
