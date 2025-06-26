@@ -147,6 +147,7 @@ void motor_go(struct gpiod_chip *chip, int speed, double total_duration){
     motor_stop();
     printf("✅ %.2f초 이동 완료\n", total_duration);
 }
+
 void motor_left(double duration) {
     safe_set_value(in1, 1, "IN1");
     safe_set_value(in2, 0, "IN2");
@@ -181,13 +182,93 @@ void forward_one(Point *pos, int dir) {
 }
 
 void rotate_one(int *dir, int turn_dir) {
-    motor_go(chip, 80, 0.2);
+    //motor_go(chip, 80, 0.2);
     usleep(100000);
     if (turn_dir > 0)
         motor_right(SECONDS_PER_90_DEG_ROTATION);
     else 
         motor_left(SECONDS_PER_90_DEG_ROTATION);
     *dir = (*dir + turn_dir + 4) % 4;
+}
+
+// --- 시간 기반 모터 제어 함수들 ---
+// 아루코 마커 보정시 사용 함수
+// 전진
+void aruco_forward_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 후진
+void aruco_backward_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 왼쪽 평행 이동 (좌우 중심 보정)
+void aruco_left_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 오른쪽 평행 이동 (좌우 중심 보정)
+void aruco_right_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 좌회전 (Yaw 보정)
+void rotate_left_time(float sec) {
+    safe_set_value(in1, 1, "IN1");
+    safe_set_value(in2, 0, "IN2");
+    safe_set_value(in3, 1, "IN3");
+    safe_set_value(in4, 0, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
+}
+
+// 우회전 (Yaw 보정)
+void rotate_right_time(float sec) {
+    safe_set_value(in1, 0, "IN1");
+    safe_set_value(in2, 1, "IN2");
+    safe_set_value(in3, 0, "IN3");
+    safe_set_value(in4, 1, "IN4");
+    safe_set_value(ena, 1, "ENA");
+    safe_set_value(enb, 1, "ENB");
+
+    usleep(SEC_TO_US(sec));
+    motor_stop();
 }
 
 void reset_counts() {

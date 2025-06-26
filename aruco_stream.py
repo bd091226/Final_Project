@@ -41,16 +41,18 @@ while True:
             x_cm = tvecs[i][0][0] * 100
             y_cm = tvecs[i][0][1] * 100
             z_cm = tvecs[i][0][2] * 100
-            distance_cm = np.linalg.norm(tvecs[i]) * 100
 
+            # 방향 정보 (Yaw 추출)
+            rvec = rvecs[i][0]
+            yaw = float(rvec[1])  # radians
             data = {
                 "id": int(ids[i][0]),
                 "x": round(x_cm, 2),
                 "y": round(y_cm, 2),
                 "z": round(z_cm, 2),
-                "distance": round(distance_cm, 2)
+                "yaw": round(yaw, 4)
             }
             # print(f"📡 전송: {data}")
             mqtt_client.publish("storage/gr", json.dumps(data))
 
-    time.sleep(0.1)  # 10Hz로 전송 (필요 시 조절)
+    time.sleep(0.5)  # 10Hz로 전송 (필요 시 조절)

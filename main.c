@@ -34,19 +34,15 @@
 #define QOS             0       // QoS 레벨
 #define TIMEOUT         10000L  // MQTT 메시지 전송 완료 대기 타임아웃(ms)
 
+// 최신 오류값 저장
+float latest_tvec[3] = {0};
+float latest_rvec_yaw = 0;
+bool need_correction = false;
 struct gpiod_line *line_m1 = NULL;
 struct gpiod_line *line_m2 = NULL;
 struct gpiod_line *line_btn = NULL;
 
 volatile sig_atomic_t keepRunning = 1; // 시그널 처리 플래그 (1: 실행중, 0: 중지 요청)
-int need_correction = 0;
-float latest_error_x = 0.0f;
-float latest_error_y = 0.0f;
-Point aruco_pos = {0, 0};
-float threshold = 1.0;  // 오차 임계값
-float target_x = 0.0;   // 기준점 x 좌표
-float target_y = 0.0;   // 기준점 y 좌표
-
 MQTTClient client;                     // 전역 MQTTClient 핸들 (콜백 및 함수들이 공유)
 int count = 1;                         // 버튼 누름 횟수
 int max_count =3;                      // 최대 버튼 횟수
@@ -96,40 +92,59 @@ void start_python_script() {
     printf("[INFO] Started Python script (PID=%d)\n", python_pid);
 }
 
-void correct_position(float error_x, float error_y) {
-    while (fabs(error_x) > 0.5 || fabs(error_y) > 0.5) {
-        printf("📌 보정 시작: error_x=%.2f, error_y=%.2f\n", error_x, error_y);
-
-        // Y축 보정 (좌/우 → 오른쪽으로 갈수록 y는 -)
-        if (error_y > 0.5) {
-            printf("↩️ 왼쪽으로 치우침 → 오른쪽으로 보정 이동\n");
-            motor_right(0.05);
-        } else if (error_y < -0.5) {
-            printf("↪️ 오른쪽으로 치우침 → 왼쪽으로 보정 이동\n");
-            motor_left(0.05);
-        }
-
-        // X축 보정 (앞/뒤 → 위로 갈수록 x는 -)
-        if (error_x > 0.5) {
-            printf("⬇️ 아래로 치우침 → 앞으로 보정 이동\n");
-            motor_go(chip, 80, 0.05);
-        } 
-        // else if (error_x < -0.5) {
-        //     printf("⬆️ 위로 치우침 → 뒤로 보정 이동\n");
-        //     move_backward_cm(3.0);
-        // }
-
-        // 최신 ArUco 좌표 다시 수신 (외부에서 global 변수 업데이트 or 재호출 필요)
-        usleep(200000);  // 200ms 대기
-
-        // 다시 업데이트된 에러값 사용
-        error_x = aruco_pos.r;
-        error_y = aruco_pos.c;
-    }
-
-    printf("✅ 위치 오차가 0.5 이내 → 보정 완료\n");
+// --- 거리(cm) -> 이동 시간(sec) 환산 함수 (예: 10cm당 0.3초) ---
+float distance_to_time(float cm) {
+    const float time_per_cm = 0.003;  // 실험으로 조정 필요
+    return cm * time_per_cm;
 }
 
+// --- 각도(rad) -> 회전 시간(sec) 환산 함수 (예: 90도(1.57rad) 당 0.5초) ---
+float angle_to_time(float rad) {
+    const float time_per_rad = 0.16; // 실험으로 조정 필요 (0.5초 / 1.57rad)
+    return fabs(rad) * time_per_rad;
+}
+// --- ArUco 마커 기반 보정 루틴 ---
+void correct_position_from_aruco(float tvec[3], float yaw) {
+    float error_x = tvec[0];    // cm 단위
+    float error_z = tvec[2];    // cm 단위
+    float angle_rad = yaw;      // rad 단위
+
+    printf("📍 보정 시작: X=%.2fcm, Z=%.2fcm, Yaw=%.3frad\n", error_x, error_z, angle_rad);
+
+    // 1. 방향 보정 (Yaw)
+    if (fabs(angle_rad) > 2.0) {
+        float rotate_time = angle_to_time(angle_rad);
+        if (angle_rad > 0) {
+            printf("↩️ 좌회전 보정: %.2f초\n", rotate_time);
+            rotate_left_time(rotate_time);
+        } else {
+            printf("↪️ 우회전 보정: %.2f초\n", rotate_time);
+            rotate_right_time(rotate_time);
+        }
+    }
+
+    // 2. 좌우 중심 보정 (X축)
+    if (fabs(error_x) > 2.0) {
+        float move_time = distance_to_time(fabs(error_x));
+        if (error_x > 0) {
+            printf("↪️ 오른쪽으로 보정 이동: %.2f초\n", move_time);
+            aruco_right_time(move_time);
+        } else {
+            printf("↩️ 왼쪽으로 보정 이동: %.2f초\n", move_time);
+            aruco_left_time(move_time);
+        }
+    }
+
+    // 3. 전방 거리 보정 (Z축)
+    // if (error_z > 30.0) { // 25cm 이상이면 앞으로 이동
+    //     float forward_time = distance_to_time(error_z - 20.0); // 20cm 거리 유지
+    //     printf("⬆️ 앞으로 보정 이동: %.2f초\n", forward_time);
+    //     aruco_forward_time(forward_time);
+    // }
+
+    motor_stop();
+    printf("✅ 보정 완료\n");
+}
 
 //토픽과 메시지를 통신을 한 뒤 완료와 대기 후 결과 코드를 반환하여 
 // 성공인지 실패인지를 구분하는 메시지가 출력되는 함수
@@ -203,10 +218,11 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
     if (strcmp(topicName, TOPIC_A_STARTPOINT) == 0)
     {
         flag_startpoint = 1;  // 블로킹 작업 대신 플래그만 세팅
+        motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
     }
     if(strcmp(topicName, TOPIC_A_COMPLETE_ARRIVED) == 0) {
         // 목적지 도착 메시지 수신
-        motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
+        //motor_go(chip, 60, 3.0);  // 모터를 60 속도로 3초간 작동
     }
     if(strcmp(topicName,TOPIC_SUB)==0)
     {
@@ -275,49 +291,36 @@ int msgarrvd(void *context, char *topicName, int topicLen, MQTTClient_message *m
             cJSON *x_item = cJSON_GetObjectItem(root, "x");
             cJSON *y_item = cJSON_GetObjectItem(root, "y");
             cJSON *z_item = cJSON_GetObjectItem(root, "z");
-            cJSON *dist_item = cJSON_GetObjectItem(root, "distance");
+            cJSON *yaw_item = cJSON_GetObjectItem(root, "yaw");
 
             if (cJSON_IsNumber(id_item) && cJSON_IsNumber(x_item) && cJSON_IsNumber(y_item)) {
                 int id = id_item->valueint;
                 float x = x_item->valuedouble;  // ArUco 기준 차량의 x 좌표
                 float y = y_item->valuedouble;  // ArUco 기준 차량의 y 좌표
                 float z = z_item ? z_item->valuedouble : 0.0;
-                float dist = dist_item ? dist_item->valuedouble : 0.0;
+                float yaw = yaw_item ? yaw_item->valuedouble : 0.0;
+                // 최신 좌표 및 yaw 저장
+                latest_tvec[0] = x;
+                latest_tvec[1] = y;
+                latest_tvec[2] = z;
+                latest_rvec_yaw = yaw;
 
-                printf("📥 수신 → ID:%d, X:%.2f, Y:%.2f, Z:%.2f, 거리:%.2fcm\n", id, x, y, z, dist);
+                need_correction = true;
 
-                // 차량이 위치하고 있어야 할 목표 위치
-                float goal_x = (float)current_pos.r;
-                float goal_y = (float)current_pos.c;
-
-                // 오차 계산
-                float error_x = x - goal_x;
-                float error_y = y - goal_y;
-
-                // 오차가 0.5보다 크면 보정 필요
-                if (fabs(error_x) > 0.5 || fabs(error_y) > 0.5) {
-                    need_correction = true;
-                    latest_error_x = error_x;
-                    latest_error_y = error_y;
-                    printf("🔧 보정 필요: error_x=%.2f, error_y=%.2f → need_correction=1\n", error_x, error_y);
-                } else {
-                    need_correction = false;
-                    printf("👌 보정 불필요: error_x=%.2f, error_y=%.2f → need_correction=0\n", error_x, error_y);
-                }
-            } else {
-                printf("⚠️ JSON 항목 누락 또는 타입 오류\n");
+                printf("📥 수신 → ID:%d, X:%.2f, Y:%.2f, Z:%.2f, yaw:%.2fcm\n", id, x, y, z, yaw);
             }
-            cJSON_Delete(root);  // 메모리 해제
         }
+        // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
+        cJSON_Delete(root);
+        MQTTClient_freeMessage(&message);
+        MQTTClient_free(topicName);
+        return 1;
     }
-    // 동적으로 할당된 메시지와 토픽 문자열 메모리 해제
-    MQTTClient_freeMessage(&message);
-    MQTTClient_free(topicName);
-    return 1;
 }
 
 
-int main() {
+int main() 
+{
     int btn_value, last_btn_value;
     int ret;
 
@@ -326,14 +329,16 @@ int main() {
     
     // 1) GPIO 칩 오픈
     chip = gpiod_chip_open(GPIO_CHIP);
-    if (!chip) {
+    if (!chip) 
+    {
         perror("gpiod_chip_open failed");
         exit(1);
     }
     ena = gpiod_chip_get_line(chip, ENA_PIN);
     enb = gpiod_chip_get_line(chip, ENB_PIN);
 
-    if (!chip || !ena || !enb) {
+    if (!chip || !ena || !enb) 
+    {
         perror("GPIO init failed");
         exit(1);
     }
@@ -342,7 +347,7 @@ int main() {
     gpiod_line_request_output(enb, "ENB", 1);
 
     // 초음파 핀 초기화
-    init_ultrasonic_pins(chip);
+    //init_ultrasonic_pins(chip);
 
     // 2) 파이썬 스크립트 실행 (Flask 서버 띄우기)
     start_python_script();
@@ -371,7 +376,8 @@ int main() {
 
     // 4) 모터 제어용 GPIO (초기값 OFF)
     if (gpiod_line_request_output(line_m1, "motor_ctrl", 0) < 0 ||
-        gpiod_line_request_output(line_m2, "motor_ctrl", 0) < 0) {
+        gpiod_line_request_output(line_m2, "motor_ctrl", 0) < 0) 
+    {
         perror("gpiod_line_request_output (motor)");
         gpiod_chip_close(chip);
         return EXIT_FAILURE;
@@ -442,7 +448,8 @@ int main() {
     last_btn_value = gpiod_line_get_value(line_btn);
 
     // 10) 메인 루프: keepRunning이 1인 동안 반복
-    while (keepRunning) {
+    while (keepRunning) 
+    {
         // 버튼 상태(LOW: 눌림, HIGH: 풀업)
         btn_value = gpiod_line_get_value(line_btn);
 
@@ -516,6 +523,11 @@ int main() {
                 MQTTClient_yield();
                 usleep(200000);
             }
+            // --- 2. 보정: MOVE 명령 수신 직후 1회만 ---
+            if (need_correction) {
+                correct_position_from_aruco(latest_tvec, latest_rvec_yaw);
+                need_correction = false;
+            }
             move_permission = 0;
 
             Point nxt = path[path_idx];
@@ -536,16 +548,7 @@ int main() {
                 forward_one(&current_pos, dirA);  // 속도 70으로 전진
                 path_idx++;
             }
-            sleep(3);  // 0.1초 대기
-
-            printf("need_correction: %d\n",need_correction);
-            if(need_correction)
-            {
-                correct_position(latest_error_x, latest_error_y);
-                MQTTClient_yield();
-                usleep(200000);  // 보정 후 잠깐 대기
-                need_correction=false;  // 보정 후 플래그 초기화
-            }
+            
             publish_multi_status(path, path_idx, path_len);
             print_grid_with_dir(current_pos, dirA);
         }
@@ -584,7 +587,8 @@ int main() {
                 usleep(10000);       // CPU 점유 최소화
             }
             printf("[송신] %s → %s\n", msg_buffer, TOPIC_A_DEST_ARRIVED);
-        } else {
+        } 
+        else {
             printf("[오류] 목적지 도착 메시지 전송 실패: %s\n", msg_buffer);
         }
         current_goal_char = '\0';

@@ -73,6 +73,14 @@ void motor_left(double duration);
 void motor_right(double duration);
 void forward_one(Point *pos, int dir);
 void rotate_one(int *dir, int turn_dir);
+// 아루코 보정용
+void aruco_forward_time(float sec);
+void aruco_backward_time(float sec);
+void aruco_left_time(float sec);
+void aruco_right_time(float sec);
+void rotate_left_time(float sec);
+void rotate_right_time(float sec);
+
 void reset_counts();
 void print_counts(const char* tag);
 void handle_encoder_events();

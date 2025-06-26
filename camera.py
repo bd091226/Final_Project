@@ -51,12 +51,11 @@ def generate_frames():
                 x_cm = tvecs[i][0][0] * 100
                 y_cm = tvecs[i][0][1] * 100
                 z_cm = tvecs[i][0][2] * 100
-
-                # 전체 거리도 계산 (유클리드 거리)
-                distance_cm = np.linalg.norm(tvecs[i]) * 100
+                rvec = rvecs[i][0]
+                yaw = float(rvec[1])  # radians
 
                 # 콘솔 출력
-                print(f"ID: {ids[i][0]}, X: {x_cm:.2f}cm, Y: {y_cm:.2f}cm, Z: {z_cm:.2f}cm, 거리: {distance_cm:.2f}cm")
+                print(f"ID: {ids[i][0]}, X: {x_cm:.2f}cm, Y: {y_cm:.2f}cm, Z: {z_cm:.2f}cm, yum: {yaw:.2f}cm")
 
                 # 프레임에 거리ㅔㅔ 정보 표시
                 cv2.putText(frame, f"X:{x_cm:.1f} Y:{y_cm:.1f} Z:{z_cm:.1f} cm", (center_x, center_y + 20),
