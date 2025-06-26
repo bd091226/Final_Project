@@ -3,7 +3,7 @@
 
 #include <MQTTClient.h>
 #include <gpiod.h>
-#include "encoder_c.h"
+#include "encoder.h"
 
 // MQTT 설정
 #define ADDRESS   "tcp://broker.hivemq.com:1883"
@@ -24,6 +24,9 @@ typedef struct Node {
     int g, h, f;
     struct Node *parent;
 } Node;
+
+
+
 
 // 전역 변수 선언 (acar.c에서 정의해야 함)
 extern MQTTClient client;

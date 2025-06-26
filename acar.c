@@ -10,6 +10,7 @@
 #include <ctype.h>
 
 #include "acar.h"
+#include "encoder.h"
 
 // 전역 변수 정의
 //MQTTClient client;
@@ -36,6 +37,7 @@ int path_len = 0;
 int path_idx = 0;
 Point current_pos = {0, 0};
 int dirA = SOUTH;
+
 
 // 휴리스틱: 맨해튼 거리
 int heuristic(Point a, Point b) 
