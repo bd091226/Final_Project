@@ -19,7 +19,7 @@ gcc -g Bcar_C.c Bcar_moter.c moter_control.c encoder.c -o Bcar_C -lpaho-mqtt3c -
 #include "Bcar_moter.h"
 #include "encoder.h"
 
-#define ADDRESS "ws://mqtt.choidaruhan.xyz:8083"
+#define ADDRESS "tcp://broker.hivemq.com:1883"
 // #define CLIENTID "RaspberryPi_Bcar"
 #define TOPIC_B_DANGER       "vehicle/emergency/B"
 #define TOPIC_B_DEST "storage/b_dest"

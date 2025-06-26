@@ -7,7 +7,7 @@
 #include "encoder.h"
 
 // ===== MQTT 설정 =====
-#define ADDRESS   "ws://mqtt.choidaruhan.xyz:8083"
+#define ADDRESS   "tcp://broker.hivemq.com:1883"
 #define CLIENTID  "Vehicle_B"
 
 #define TOPIC_B               "vehicle/status_B"

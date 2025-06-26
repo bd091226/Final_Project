@@ -11,6 +11,8 @@
 #include "Bcar_moter.h"
 #include "encoder.h"
 
+#define TOPIC_B_QROAD "vehicle/Q_road"
+
 const int DIR_VECTORS[4][2] = {
     {-1, 0}, // N
     {0, 1},  // E
@@ -323,6 +325,22 @@ int complete_message(const char *topic, const char *message)
 
     printf("[송신] %s → %s\n", payload, topic);
 }
+
+void Q_current_road(Position current)
+{
+    char payload[64];
+    snprintf(payload, sizeof(payload), "ID: B POS: (%d,%d)", current.x, current.y);
+
+    MQTTClient_message msg = MQTTClient_message_initializer;
+    msg.payload    = payload;
+    msg.payloadlen = strlen(payload);
+    msg.qos        = QOS;
+    msg.retained   = 0;
+
+    MQTTClient_publishMessage(client,TOPIC_B_QROAD, &msg, NULL);
+
+    printf("[송신] %s -> %s\n", payload,topic);
+}
 int run_vehicle_path(const char *goal)
 {
     if (!gpio_initialized) {
@@ -353,6 +371,10 @@ int run_vehicle_path(const char *goal)
     for (int i = 0; i < path_len - 1; i++)
     {
         current_dir = move_step(path[i], path[i + 1], current_dir);
+        Position current = path[i];
+        Q_current_road(current);
+
+
         // while (1)
         // {
         //     float distance = get_distance_cm();
