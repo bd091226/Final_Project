@@ -8,7 +8,7 @@ import pymysql  # pip3 install pymysql
 
 # ——— DB 접속 정보 ———
 DB_CONFIG = {
-    'host': '13.209.8.231',
+    'host': '3.34.22.0',
     'user': 'user',
     'password': 'Kosta_Final_250519',
     'database': 'Final_Project',
