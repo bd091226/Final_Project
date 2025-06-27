@@ -537,7 +537,9 @@ def update_vehicle_coords(cursor, conn, x, y, 차량_id):
             -- vehicle 테이블 특정 차량 coord_x, coord_y 수정
             UPDATE vehicle
                SET coord_x    = %s,  -- 현재 X 좌표
-                   coord_y    = %s   -- 현재 Y 좌표
+                   coord_y    = %s,   -- 현재 Y 좌표
+                   AI_coord_x = NULL,    -- 현재 X 좌표
+                   AI_coord_y = NULL     -- 현재 Y 좌표
              WHERE vehicle_id = %s   -- 업데이트할 차량의 ID
         """, (x, y, 차량_id))
         conn.commit()
